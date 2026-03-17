@@ -40,6 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('saveBtn').addEventListener('click', saveSettings);
   document.getElementById('verifyBtn').addEventListener('click', verifyService);
   document.getElementById('closeBtn').addEventListener('click', () => window.close());
+  document.getElementById('clearCacheBtn').addEventListener('click', clearCache);
 
   const langSelect = document.getElementById('targetLanguage');
   const customInput = document.getElementById('customLanguage');
@@ -163,8 +164,10 @@ async function verifyService() {
       ],
       temperature: 0,
       max_tokens: 32,
-      chat_template_kwargs: { enable_thinking: false },
     };
+    if (model && model.toLowerCase().includes('mlx')) {
+      body.chat_template_kwargs = { enable_thinking: false };
+    }
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -214,6 +217,28 @@ async function verifyService() {
   }
 
   btn.disabled = false;
+}
+
+function clearCache() {
+  // Cache lives in netflix.com's IndexedDB origin, not the extension's.
+  // Send message to content script to clear it from the correct origin.
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (!tabs[0]) {
+      showStatus('No active tab found', 'error');
+      return;
+    }
+    chrome.tabs.sendMessage(tabs[0].id, { type: 'clearCache' }, (resp) => {
+      if (chrome.runtime.lastError) {
+        showStatus('Open a Netflix tab first, then try again', 'error');
+        return;
+      }
+      if (resp?.success) {
+        showStatus('Cache cleared!', 'success');
+      } else {
+        showStatus('Failed to clear cache', 'error');
+      }
+    });
+  });
 }
 
 function showStatus(message, type) {

@@ -16,6 +16,10 @@
   let cueQueue = []; // ordered list of all known cues for lookahead
   const MAX_QUEUE = 1000;
 
+  // Helper — current language and model for cache keying
+  function lang() { return settings.targetLanguage; }
+  function model() { return settings.modelName; }
+
   async function init() {
     console.log('[LLM Translator] Loading...');
 
@@ -38,7 +42,11 @@
 
     // Listen for prefetched subtitle cues from MAIN world script
     window.addEventListener('message', (event) => {
-      if (event.data?.type === 'LLM_SUBTITLE_CUES' && settings.enabled) {
+      if (
+        event.data?.type === 'LLM_SUBTITLE_CUES' &&
+        event.origin === window.location.origin &&
+        settings.enabled
+      ) {
         enqueueCues(event.data.cues);
       }
     });
@@ -63,6 +71,15 @@
       startObserving();
     }
 
+    // Listen for messages from popup (e.g., clear cache)
+    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+      if (msg.type === 'clearCache') {
+        TranslationCache.clear();
+        console.log('[LLM Translator] Cache cleared by user');
+        sendResponse({ success: true });
+      }
+    });
+
     console.log('[LLM Translator] Initialized');
   }
 
@@ -70,79 +87,15 @@
     NetflixSubtitles.start((text, container) => {
       handleNewSubtitle(text, container);
     });
+
+    // Abort in-flight requests on seek/skip and re-prioritize prefetch
+    NetflixSubtitles.onSeek(() => {
+      Translator.abortAll();
+      reprioritizePrefetch();
+    });
   }
 
-  // ── Adaptive throughput controller ──────────────────────────────────
-  // Dynamically adjusts batch size and worker count based on observed
-  // LLM response times. Starts conservative, scales up when fast,
-  // backs off when slow or errors occur.
-
-  const adaptive = {
-    batchSize: 5,       // current batch size (starts conservative)
-    concurrency: 2,     // current worker count
-    activeRequests: 0,  // tracks ALL in-flight requests (prefetch + lookahead)
-    MIN_BATCH: 2,
-    MAX_BATCH: 15,
-    MIN_WORKERS: 1,
-    MAX_WORKERS: 5,
-    latencies: [],      // rolling window of recent batch latencies (ms)
-    WINDOW: 8,          // number of samples to keep
-    errors: 0,          // consecutive error count
-    cooldown: 0,        // batches to skip before next adjust (prevents oscillation)
-    COOLDOWN_PERIOD: 4, // skip this many batches after each scale change
-    FAST_MS: 2000,      // below this = scale up
-    SLOW_MS: 6000,      // above this = scale down
-
-    record(latencyMs, success) {
-      if (!success) {
-        this.errors++;
-        this.scaleDown();
-        return;
-      }
-      this.errors = 0;
-      this.latencies.push(latencyMs);
-      if (this.latencies.length > this.WINDOW) this.latencies.shift();
-      this.adjust();
-    },
-
-    avgLatency() {
-      if (this.latencies.length === 0) return this.SLOW_MS;
-      return this.latencies.reduce((a, b) => a + b, 0) / this.latencies.length;
-    },
-
-    adjust() {
-      if (this.latencies.length < 3) return; // need enough samples
-      if (this.cooldown > 0) { this.cooldown--; return; } // wait for cooldown
-      const avg = this.avgLatency();
-      if (avg < this.FAST_MS) {
-        this.scaleUp();
-      } else if (avg > this.SLOW_MS) {
-        this.scaleDown();
-      }
-    },
-
-    scaleUp() {
-      const oldB = this.batchSize, oldW = this.concurrency;
-      this.batchSize = Math.min(this.batchSize + 2, this.MAX_BATCH);
-      this.concurrency = Math.min(this.concurrency + 1, this.MAX_WORKERS);
-      if (this.batchSize !== oldB || this.concurrency !== oldW) {
-        this.cooldown = this.COOLDOWN_PERIOD;
-        console.log(`[LLM Adaptive] Scale UP → batch=${this.batchSize} workers=${this.concurrency} (avg ${Math.round(this.avgLatency())}ms)`);
-      }
-    },
-
-    scaleDown() {
-      const oldB = this.batchSize, oldW = this.concurrency;
-      this.batchSize = Math.max(Math.floor(this.batchSize * 0.6), this.MIN_BATCH);
-      this.concurrency = Math.max(this.concurrency - 1, this.MIN_WORKERS);
-      if (this.batchSize !== oldB || this.concurrency !== oldW) {
-        this.cooldown = this.COOLDOWN_PERIOD;
-        console.log(`[LLM Adaptive] Scale DOWN → batch=${this.batchSize} workers=${this.concurrency} (avg ${Math.round(this.avgLatency())}ms, errors=${this.errors})`);
-      }
-    },
-  };
-
-  // ── Prefetch queue: merge new cues, never drop ──────────────────────
+  // ── Prefetch queue ────────────────────────────────────────────────
 
   let prefetchRunning = false;
   let pendingCues = [];
@@ -156,14 +109,13 @@
         known.add(cue);
       }
     }
-    // Fix #6: Trim oldest entries to prevent unbounded growth
     if (cueQueue.length > MAX_QUEUE) {
       cueQueue.splice(0, cueQueue.length - MAX_QUEUE);
     }
 
     // Add to pending prefetch queue
     for (const cue of cues) {
-      if (!TranslationCache.has(cue)) {
+      if (!TranslationCache.has(cue, lang(), model())) {
         pendingCues.push(cue);
       }
     }
@@ -173,24 +125,51 @@
     }
   }
 
+  // Re-prioritize pending cues after a seek — move cues near current
+  // playback position to the front of the queue
+  function reprioritizePrefetch() {
+    const currentText = NetflixSubtitles.getCurrentText();
+    if (!currentText || pendingCues.length === 0) return;
+
+    const currentIdx = cueQueue.indexOf(currentText);
+    if (currentIdx === -1) return;
+
+    // Sort pending cues by proximity to current position in cueQueue
+    const posMap = new Map();
+    for (let i = 0; i < cueQueue.length; i++) {
+      posMap.set(cueQueue[i], i);
+    }
+
+    pendingCues.sort((a, b) => {
+      const posA = posMap.get(a) ?? Infinity;
+      const posB = posMap.get(b) ?? Infinity;
+      return Math.abs(posA - currentIdx) - Math.abs(posB - currentIdx);
+    });
+
+    console.log(`[LLM Translator] Reprioritized ${pendingCues.length} pending cues around position ${currentIdx}`);
+  }
+
   async function runPrefetch() {
     prefetchRunning = true;
 
     while (pendingCues.length > 0) {
-      // Snapshot current pending cues; new cues added during async iteration
-      // stay in pendingCues and are picked up by the next while-loop pass.
+      // Circuit breaker — pause prefetch if server is down
+      if (Adaptive.isCircuitOpen()) {
+        console.log('[LLM Translator] Prefetch paused — circuit breaker open');
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+
+      // Snapshot current pending cues; new cues stay in pendingCues
       const processing = pendingCues.splice(0, pendingCues.length);
       const uncached = [];
       const seen = new Set();
       for (const cue of processing) {
-        if (!TranslationCache.has(cue) && !seen.has(cue)) {
+        if (!TranslationCache.has(cue, lang(), model()) && !seen.has(cue)) {
           // Check IndexedDB L2
-          const persisted = await TranslationCache.getFromDB(
-            cue,
-            settings.targetLanguage
-          );
+          const persisted = await TranslationCache.getFromDB(cue, lang(), model());
           if (persisted) {
-            TranslationCache.set(cue, persisted, settings.targetLanguage);
+            TranslationCache.set(cue, persisted, lang(), model());
           } else {
             uncached.push(cue);
             seen.add(cue);
@@ -200,8 +179,8 @@
 
       if (uncached.length === 0) continue;
 
-      const bs = adaptive.batchSize;
-      const wk = adaptive.concurrency;
+      const bs = Adaptive.getBatchSize();
+      const wk = Adaptive.getConcurrency();
       console.log(
         `[LLM Translator] Prefetching ${uncached.length} cues (batch=${bs}, workers=${wk})`
       );
@@ -218,7 +197,7 @@
         while (batchIdx < batches.length) {
           const idx = batchIdx++;
           const batch = batches[idx];
-          await translateBatch(batch, idx + 1, batches.length);
+          await doBatchTranslation(batch, idx + 1, batches.length);
         }
       });
 
@@ -229,75 +208,69 @@
     prefetchRunning = false;
   }
 
-  async function translateBatch(batch, batchNum, totalBatches) {
-    adaptive.activeRequests++;
+  async function doBatchTranslation(batch, batchNum, totalBatches) {
+    if (Adaptive.isCircuitOpen()) return;
+
+    Adaptive.incrementActive();
     const t0 = performance.now();
     try {
-      const response = await new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage(
-          { type: 'translateBatch', texts: batch, settings },
-          (resp) => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(chrome.runtime.lastError.message));
-              return;
-            }
-            if (resp?.error) {
-              reject(new Error(resp.error));
-              return;
-            }
-            resolve(resp);
-          }
-        );
-      });
-
+      const translations = await Translator.translateBatch(batch, settings);
       const elapsed = performance.now() - t0;
+      const count = Object.keys(translations).length;
 
-      if (response.translations) {
-        const count = Object.keys(response.translations).length;
-        for (const [original, translated] of Object.entries(
-          response.translations
-        )) {
-          TranslationCache.set(original, translated, settings.targetLanguage);
-        }
-        console.log(
-          `[LLM Translator] Batch ${batchNum}/${totalBatches}: ${count}/${batch.length} cached (${Math.round(elapsed)}ms)`
-        );
+      for (const [original, translated] of Object.entries(translations)) {
+        TranslationCache.set(original, translated, lang(), model());
       }
+      console.log(
+        `[LLM Translator] Batch ${batchNum}/${totalBatches}: ${count}/${batch.length} cached (${Math.round(elapsed)}ms)`
+      );
 
-      adaptive.record(elapsed, true);
+      Adaptive.record(elapsed, true);
     } catch (err) {
-      adaptive.record(0, false);
+      if (err.message === 'Request aborted') {
+        // Don't count aborts as failures
+        return;
+      }
+      Adaptive.record(0, false);
       console.warn(
         `[LLM Translator] Batch ${batchNum} failed: ${err.message}, falling back to individual`
       );
       // Fallback: translate individually — feed results back to adaptive
       let fallbackOk = 0, fallbackFail = 0;
       for (const text of batch) {
-        if (TranslationCache.has(text)) continue;
+        if (TranslationCache.has(text, lang(), model())) continue;
+        if (Adaptive.isCircuitOpen()) break;
         const ft0 = performance.now();
         try {
           const translation = await Translator.translate(text, settings);
-          TranslationCache.set(text, translation, settings.targetLanguage);
+          TranslationCache.set(text, translation, lang(), model());
           fallbackOk++;
-          adaptive.record(performance.now() - ft0, true);
+          Adaptive.record(performance.now() - ft0, true);
         } catch (e) {
+          if (e.message === 'Request aborted') break;
           fallbackFail++;
-          adaptive.record(0, false);
+          Adaptive.record(0, false);
         }
       }
       if (fallbackOk + fallbackFail > 0) {
         console.log(`[LLM Translator] Fallback: ${fallbackOk} ok, ${fallbackFail} failed`);
       }
     } finally {
-      adaptive.activeRequests--;
+      Adaptive.decrementActive();
     }
   }
 
   // ── Subtitle display with lookahead ─────────────────────────────────
 
   async function handleNewSubtitle(text, container) {
+    // Circuit breaker — show originals if server is down
+    if (Adaptive.isCircuitOpen()) {
+      NetflixSubtitles.showOriginalSubtitles();
+      return;
+    }
+
     // L1: sync memory cache (instant)
-    const cached = TranslationCache.get(text);
+    const cached = TranslationCache.get(text, lang(), model());
     if (cached) {
       NetflixSubtitles.displayTranslation(container, text, cached);
       triggerLookahead(text);
@@ -305,12 +278,9 @@
     }
 
     // L2: async IndexedDB cache (few ms)
-    const persisted = await TranslationCache.getFromDB(
-      text,
-      settings.targetLanguage
-    );
+    const persisted = await TranslationCache.getFromDB(text, lang(), model());
     if (persisted) {
-      TranslationCache.set(text, persisted, settings.targetLanguage);
+      TranslationCache.set(text, persisted, lang(), model());
       if (NetflixSubtitles.getCurrentText() === text) {
         NetflixSubtitles.displayTranslation(container, text, persisted);
       }
@@ -320,34 +290,31 @@
 
     // Cache miss — keep Netflix original visible while translating
     NetflixSubtitles.showOriginalSubtitles();
-
-    // Kick off lookahead for upcoming cues in parallel
     triggerLookahead(text);
 
-    // Fix #4: Retry up to 2 times on failure, fallback to showing originals
+    // Retry up to 2 times on failure, fallback to showing originals
     const MAX_RETRIES = 1;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (Adaptive.isCircuitOpen()) break;
       try {
         const translation = await Translator.translate(text, settings);
-        TranslationCache.set(text, translation, settings.targetLanguage);
+        TranslationCache.set(text, translation, lang(), model());
 
-        // Only show if this subtitle is still on screen
         if (NetflixSubtitles.getCurrentText() === text) {
           NetflixSubtitles.displayTranslation(container, text, translation);
         }
-        return; // success — exit retry loop
+        return;
       } catch (err) {
+        if (err.message === 'Request aborted') return;
         console.warn(
           `[LLM Translator] Translation attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`,
           err.message
         );
         if (attempt < MAX_RETRIES) {
-          // Brief backoff before retry
           await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
         }
       }
     }
-    // All retries exhausted — ensure Netflix originals are visible
     console.warn('[LLM Translator] All retries failed, showing original subtitles');
     NetflixSubtitles.showOriginalSubtitles();
   }
@@ -355,8 +322,8 @@
   // Translate next N uncached cues after the current one.
   // Respects adaptive concurrency — skips if server is already saturated.
   function triggerLookahead(currentText) {
-    // Don't add more load if active requests already exceed adaptive target
-    if (adaptive.activeRequests >= adaptive.concurrency + 1) return;
+    if (Adaptive.shouldThrottle()) return;
+    if (Adaptive.isCircuitOpen()) return;
 
     const LOOKAHEAD = 5;
     const idx = cueQueue.indexOf(currentText);
@@ -364,14 +331,13 @@
 
     const upcoming = [];
     for (let i = idx + 1; i < cueQueue.length && upcoming.length < LOOKAHEAD; i++) {
-      if (!TranslationCache.has(cueQueue[i])) {
+      if (!TranslationCache.has(cueQueue[i], lang(), model())) {
         upcoming.push(cueQueue[i]);
       }
     }
 
     if (upcoming.length > 0) {
-      // Fire-and-forget batch for upcoming cues
-      translateBatch(upcoming, 0, 0).catch(() => {});
+      doBatchTranslation(upcoming, 0, 0).catch(() => {});
     }
   }
 

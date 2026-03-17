@@ -1,42 +1,87 @@
-// Sends translation requests to the service worker
+// Sends translation requests to the service worker.
+// Handles both single and batch translations with dedup, timeout, and abort.
 const Translator = (() => {
-  const pendingRequests = new Map(); // text -> Promise
+  const pendingRequests = new Map(); // key -> { promise, abort }
   const MESSAGE_TIMEOUT = 10000; // 10 seconds
+  let abortController = new AbortController();
 
-  async function translate(text, settings) {
-    // Dedup in-flight requests for the same text
-    if (pendingRequests.has(text)) {
-      return pendingRequests.get(text);
-    }
+  // Abort all in-flight translation requests (e.g., on seek)
+  function abortAll() {
+    abortController.abort();
+    abortController = new AbortController();
+    pendingRequests.clear();
+    console.log('[LLM Translator] Aborted all in-flight requests');
+  }
 
-    // Fix #7: Add timeout to prevent hanging promises if service worker dies
-    const promise = new Promise((resolve, reject) => {
+  function _sendMessage(msg, signal) {
+    return new Promise((resolve, reject) => {
+      // Check if already aborted
+      if (signal.aborted) {
+        reject(new Error('Request aborted'));
+        return;
+      }
+
       const timer = setTimeout(() => {
-        pendingRequests.delete(text);
         reject(new Error('Translation request timeout (10s)'));
       }, MESSAGE_TIMEOUT);
 
-      chrome.runtime.sendMessage(
-        { type: 'translate', text, settings },
-        (response) => {
-          clearTimeout(timer);
-          pendingRequests.delete(text);
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-            return;
-          }
-          if (response?.error) {
-            reject(new Error(response.error));
-            return;
-          }
-          resolve(response.translation);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new Error('Request aborted'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+
+      chrome.runtime.sendMessage(msg, (response) => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        if (signal.aborted) {
+          reject(new Error('Request aborted'));
+          return;
         }
-      );
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (response?.error) {
+          reject(new Error(response.error));
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  async function translate(text, settings) {
+    const key = text;
+    // Dedup in-flight requests for the same text
+    if (pendingRequests.has(key)) {
+      return pendingRequests.get(key).promise;
+    }
+
+    const signal = abortController.signal;
+    const promise = _sendMessage(
+      { type: 'translate', text, settings },
+      signal
+    ).then((resp) => {
+      pendingRequests.delete(key);
+      return resp.translation;
+    }).catch((err) => {
+      pendingRequests.delete(key);
+      throw err;
     });
 
-    pendingRequests.set(text, promise);
+    pendingRequests.set(key, { promise });
     return promise;
   }
 
-  return { translate };
+  async function translateBatch(texts, settings) {
+    const signal = abortController.signal;
+    const resp = await _sendMessage(
+      { type: 'translateBatch', texts, settings },
+      signal
+    );
+    return resp.translations || {};
+  }
+
+  return { translate, translateBatch, abortAll };
 })();

@@ -283,6 +283,24 @@ h1 {
   cursor: not-allowed;
 }
 
+.clear-cache-btn {
+  padding: 8px 12px;
+  background: transparent;
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  transition: border-color 0.25s ease, background 0.25s ease;
+}
+
+.clear-cache-btn:hover {
+  border-color: rgba(248, 113, 113, 0.6);
+  background: rgba(248, 113, 113, 0.1);
+}
+
 /* Status messages */
 .status {
   font-size: 11px;

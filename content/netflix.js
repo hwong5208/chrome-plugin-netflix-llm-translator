@@ -1,10 +1,15 @@
 // Netflix subtitle detection and injection
+// Implements the SubtitleProvider interface:
+//   start(callback), stop(), displayTranslation(), hideOverlay(),
+//   showOriginalSubtitles(), hideOriginalSubtitles(), getCurrentText(),
+//   onSeek(callback)
 const NetflixSubtitles = (() => {
   let subtitleObserver = null;
   let bodyObserver = null;
   let lastSubtitleText = '';
   let lastObservedContainer = null;
   let onSubtitleChange = null;
+  let onSeekCallback = null;
   let translationOverlay = null;
   let hideStyleEl = null;
   let hideTimeoutId = null;
@@ -61,6 +66,11 @@ const NetflixSubtitles = (() => {
     watchForSubtitleContainer();
   }
 
+  // Register a seek callback — fired when subtitles clear (indicates seek/skip)
+  function onSeek(callback) {
+    onSeekCallback = callback;
+  }
+
   function stop() {
     if (subtitleObserver) {
       subtitleObserver.disconnect();
@@ -78,7 +88,6 @@ const NetflixSubtitles = (() => {
       translationOverlay.remove();
       translationOverlay = null;
     }
-    // Remove hide style so Netflix originals are visible after stop
     if (hideStyleEl && document.contains(hideStyleEl)) {
       hideStyleEl.remove();
       hideStyleEl = null;
@@ -87,6 +96,7 @@ const NetflixSubtitles = (() => {
     lastSubtitleText = '';
     lastObservedContainer = null;
     onSubtitleChange = null;
+    onSeekCallback = null;
   }
 
   function watchForSubtitleContainer() {
@@ -105,7 +115,6 @@ const NetflixSubtitles = (() => {
     bodyObserver.observe(document.body, { childList: true, subtree: true });
   }
 
-  // Fix #3: Track lastObservedContainer to prevent observer leak
   function observeSubtitles(container) {
     if (subtitleObserver && lastObservedContainer === container) return;
 
@@ -140,27 +149,23 @@ const NetflixSubtitles = (() => {
       }
     });
 
-    // Dedup: skip if same text still on screen.
-    // Backward seek is handled by hideOverlay() resetting lastSubtitleText to ''.
     if (currentText === lastSubtitleText) return;
     lastSubtitleText = currentText;
 
     if (!currentText) {
-      // Subtitle cleared — fade out and hide
+      // Subtitle cleared — indicates seek, skip, or natural gap
       hideOverlay();
       showOriginalSubtitles();
+      if (onSeekCallback) onSeekCallback();
       return;
     }
 
-    // Don't hide original yet — let content.js decide based on cache hit
     if (onSubtitleChange) {
       onSubtitleChange(currentText, container);
     }
   }
 
-  // Called when translation is ready — smooth fade-in swap
   function displayTranslation(container, originalText, translatedText) {
-    // Fix #2: Cancel any pending hide timeout
     if (hideTimeoutId) {
       clearTimeout(hideTimeoutId);
       hideTimeoutId = null;
@@ -168,7 +173,6 @@ const NetflixSubtitles = (() => {
 
     const overlay = getOrCreateOverlay();
 
-    // Build new content off-screen, then swap with transition
     overlay.innerHTML = '';
     overlay.classList.remove('llm-visible');
 
@@ -183,21 +187,18 @@ const NetflixSubtitles = (() => {
     overlay.appendChild(originalDiv);
     overlay.appendChild(translatedDiv);
 
-    // Force reflow then trigger fade-in
     overlay.style.display = 'flex';
     overlay.offsetHeight; // force layout
     overlay.classList.add('llm-visible');
     hideOriginalSubtitles();
   }
 
-  // Fix #2: Track timeout ID, prevent stale timeouts from hiding new content
   function hideOverlay() {
     if (translationOverlay) {
       if (hideTimeoutId) {
         clearTimeout(hideTimeoutId);
       }
       translationOverlay.classList.remove('llm-visible');
-      // Reset lastSubtitleText so re-appearing text is treated as new (Fix #1)
       lastSubtitleText = '';
       hideTimeoutId = setTimeout(() => {
         if (translationOverlay && !translationOverlay.classList.contains('llm-visible')) {
@@ -212,5 +213,10 @@ const NetflixSubtitles = (() => {
     return lastSubtitleText;
   }
 
-  return { start, stop, displayTranslation, hideOverlay, showOriginalSubtitles, hideOriginalSubtitles, getCurrentText };
+  return {
+    start, stop, onSeek,
+    displayTranslation, hideOverlay,
+    showOriginalSubtitles, hideOriginalSubtitles,
+    getCurrentText,
+  };
 })();

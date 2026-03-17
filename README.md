@@ -23,13 +23,16 @@ hardware — no cloud, no subscription, no data leaves your network.
 
 - **Real-time translation** — subtitles translated and displayed as they appear
 - **Prefetch pipeline** — intercepts subtitle files at download time, batch-translates before playback
-- **Two-tier cache** — L1 in-memory (instant) + L2 IndexedDB (persists across sessions)
-- **3-worker parallelism** — concurrent batch translation with lookahead for next 5 cues
+- **Two-tier cache** — L1 in-memory (instant) + L2 IndexedDB (persists across sessions, 30-day TTL)
+- **Adaptive throughput** — auto-tunes batch size and worker count based on LLM response latency
+- **Circuit breaker** — detects server failures, pauses requests for 30s, auto-recovers on probe
+- **Seek-aware** — aborts in-flight requests on seek and re-prioritizes prefetch near current position
+- **Model-aware caching** — cached translations are keyed on language + model, so switching models or languages never serves stale results
 - **Smooth transitions** — 150ms opacity fade-in/out, no subtitle flicker
 - **Genre prompt presets** — one-click prompts for General, Anime, and Documentary
 - **8 languages built-in** — dropdown with top languages + custom option
-- **Any OpenAI-compatible API** — works with MLX, vLLM, Ollama, llama.cpp, LM Studio, etc.
-- **Fully local** — all translation stays on your LAN
+- **Any OpenAI-compatible API** — works with MLX, vLLM, Ollama, llama.cpp, LM Studio, Groq, OpenAI
+- **Fully local** — all translation stays on your LAN (or use a remote API if preferred)
 
 ---
 
@@ -38,21 +41,24 @@ hardware — no cloud, no subscription, no data leaves your network.
 ```
 Netflix Page (DOM)
       │
-      ├── [prefetch.js]  ← intercepts XHR/Fetch, parses TTML & WebVTT
+      ├── [prefetch.js]     ← MAIN world: intercepts XHR/Fetch, parses TTML & WebVTT
+      │         │
+      │    window.postMessage (origin-validated)
       │         │
       │         ▼
-      │   [content.js]   ← orchestrator: queue → dedup → batch → cache
+      │   [content.js]      ← orchestrator: queue → dedup → batch → cache
       │         │
-      │         ├── [cache.js]       ← L1 Map (500 LRU) + L2 IndexedDB
-      │         ├── [translator.js]  ← dedup in-flight, message passing
-      │         └── [netflix.js]     ← MutationObserver + overlay display
+      │         ├── [adaptive.js]    ← throughput controller + circuit breaker
+      │         ├── [cache.js]       ← L1 Map (500 LRU) + L2 IndexedDB (30-day TTL)
+      │         ├── [translator.js]  ← dedup, timeout, AbortController, batch support
+      │         └── [netflix.js]     ← SubtitleProvider: MutationObserver + overlay
       │
       ▼
-[service-worker.js]      ← routes API calls (avoids CORS)
+[service-worker.js]         ← routes API calls (avoids CORS), batch retry
       │
       ▼
-Local LLM Server         ← OpenAI-compatible /v1/chat/completions
-(MLX / vLLM / Ollama)
+LLM Server                  ← OpenAI-compatible /v1/chat/completions
+(MLX / vLLM / Ollama / Groq / OpenAI)
 ```
 
 ### Key Design Decisions
@@ -63,15 +69,30 @@ the extension a head start of several seconds to batch-translate upcoming cues.
 
 **Two-tier cache** — The L1 memory cache provides synchronous, zero-cost lookups on the hot path.
 L2 IndexedDB persists translations across page reloads and browser restarts, so re-watching an episode
-hits cache for every line.
+hits cache for every line. Cache keys include language and model name to prevent stale results when
+switching configurations. L2 entries expire after 30 days.
 
-**Batch + parallel workers** — Subtitles are grouped into batches of 10 and processed by 3 concurrent
-workers. A single batch request is far cheaper than 10 individual requests because it amortizes the
-network RTT and LLM prefill cost across all lines.
+**Adaptive throughput** — The extension starts conservatively (batch=5, workers=2) and measures response
+latency. When the LLM responds fast (<2s), it scales up batch size and worker count. When slow (>6s)
+or errors occur, it scales down. A cooldown period prevents oscillation. This automatically optimizes
+for any hardware — from a laptop GPU to a beefy multi-GPU server.
 
-**Lookahead** — Every time a subtitle is displayed, the extension fires off a background translation
-for the next 5 uncached cues. Combined with prefetch, this means cache misses in normal playback are
-near zero.
+**Circuit breaker** — After 5 consecutive failures, the extension stops hammering the server and enters
+a 30-second degraded mode (showing Netflix originals). It periodically probes with a single request
+and auto-recovers when the server is back.
+
+**Seek cancellation** — When the user seeks, all in-flight translation requests are aborted via
+`AbortController`, and the prefetch queue is re-sorted by proximity to the new playback position.
+This frees LLM capacity for the subtitles the user will actually see.
+
+**SubtitleProvider abstraction** — `netflix.js` implements a provider interface (`start`, `stop`,
+`onSeek`, `displayTranslation`, `getCurrentText`), making the core pipeline platform-agnostic and
+ready for future multi-platform support.
+
+**Batch + parallel workers** — Subtitles are grouped into adaptive-sized batches and processed by
+concurrent workers. A single batch request is far cheaper than N individual requests because it
+amortizes the network RTT and LLM prefill cost across all lines. Truncation detection discards
+incomplete translations and retries them individually.
 
 **Service worker for CORS** — Content scripts cannot call a local LLM server directly due to browser
 CORS restrictions. The background service worker acts as a proxy, making the `fetch()` call from the
@@ -85,16 +106,17 @@ extension context where CORS does not apply.
 local-llm-translator/
 ├── manifest.json                # Manifest V3 config
 ├── background/
-│   └── service-worker.js        # Translation API proxy (single + batch)
+│   └── service-worker.js        # Translation API proxy (single + batch + retry)
 ├── content/
 │   ├── prefetch.js              # XHR/Fetch intercept, TTML & WebVTT parsing
-│   ├── content.js               # Orchestrator: settings, prefetch queue, lookahead
-│   ├── netflix.js               # MutationObserver + bilingual overlay
-│   ├── translator.js            # In-flight dedup + message passing to SW
-│   └── cache.js                 # L1 Map (LRU) + L2 IndexedDB
+│   ├── content.js               # Orchestrator: settings, prefetch, lookahead
+│   ├── adaptive.js              # Adaptive throughput controller + circuit breaker
+│   ├── netflix.js               # SubtitleProvider: MutationObserver + overlay
+│   ├── translator.js            # Dedup, timeout, AbortController, batch support
+│   └── cache.js                 # L1 Map (LRU) + L2 IndexedDB (TTL, model-aware)
 ├── popup/
 │   ├── popup.html               # Settings UI
-│   ├── popup.js                 # Save/load settings, verify service
+│   ├── popup.js                 # Save/load settings, verify service, clear cache
 │   └── popup.css                # Dark theme (emerald green / deep navy)
 ├── styles/
 │   └── subtitle.css             # Translation overlay styling + transitions
@@ -134,6 +156,8 @@ Click the extension icon to open the settings popup.
 Use **Verify Service** to test connectivity — it shows the model name, a sample translation,
 response latency, and token throughput (tok/s).
 
+Use **Clear Cache** to purge all stored translations (e.g., after switching models or prompts).
+
 ---
 
 ## Supported LLM Servers
@@ -147,6 +171,8 @@ Any server exposing an OpenAI-compatible `/v1/chat/completions` endpoint:
 | [Ollama](https://ollama.com)                                      | `http://localhost:11434/v1/chat/completions`|
 | [llama.cpp server](https://github.com/ggml-org/llama.cpp)         | `http://localhost:8080/v1/chat/completions`|
 | [LM Studio](https://lmstudio.ai)                                  | `http://localhost:1234/v1/chat/completions`|
+| [Groq](https://groq.com)                                          | `https://api.groq.com/openai/v1/chat/completions`|
+| [OpenAI](https://openai.com)                                      | `https://api.openai.com/v1/chat/completions`|
 
 ---
 
@@ -155,20 +181,53 @@ Any server exposing an OpenAI-compatible `/v1/chat/completions` endpoint:
 1. **Intercept** — `prefetch.js` captures Netflix subtitle file downloads (TTML/WebVTT) via
    XHR/Fetch monkey-patching and extracts all cue text
 2. **Queue** — `content.js` deduplicates cues against both cache tiers and enqueues uncached ones
-3. **Batch translate** — 3 parallel workers send batches of 10 to the service worker, which calls
-   the LLM with a numbered format (`[1] Hello \n [2] Goodbye`) for efficient single-request translation
-4. **Cache** — Translations are stored in both L1 (memory) and L2 (IndexedDB)
+3. **Adaptive batch translate** — workers send adaptive-sized batches through `translator.js` to
+   the service worker, which calls the LLM with a numbered format for efficient single-request translation
+4. **Cache** — Translations are stored in L1 (memory, keyed on text+lang+model) and L2 (IndexedDB, 30-day TTL)
 5. **Display** — When Netflix renders a subtitle, `netflix.js` detects it via MutationObserver,
    `content.js` checks cache (instant hit), and the bilingual overlay fades in within 150ms
 6. **Lookahead** — Each displayed subtitle triggers background translation of the next 5 uncached cues
+7. **Resilience** — Failed translations retry once with backoff, circuit breaker trips after 5
+   failures, seek aborts stale requests and re-prioritizes the prefetch queue
+
+---
+
+## Changelog
+
+### v1.2.0
+- **Adaptive throughput controller** — auto-tunes batch size (2–15) and worker count (1–5) based on LLM latency
+- **Circuit breaker** — stops requests after 5 consecutive failures, 30s cooldown with auto-recovery probe
+- **Seek cancellation** — AbortController cancels in-flight requests on seek, reprioritizes prefetch queue
+- **Model-aware cache** — L1 and L2 cache keys include language + model name, prevents stale translations
+- **L2 cache TTL** — IndexedDB entries expire after 30 days
+- **Clear Cache button** — purge all cached translations from the popup
+- **SubtitleProvider abstraction** — netflix.js implements a clean provider interface for future multi-platform support
+- **Extracted modules** — adaptive controller and batch translation routing moved to dedicated files
+- **Origin validation** — postMessage handler validates event.origin
+- **Conditional MLX fields** — `chat_template_kwargs` only sent for MLX-named models
+
+### v1.1.0
+- Fix request flood caused by MutationObserver re-triggering during pending translations
+- Fix backward seek subtitle loss
+- Fix hide timeout race condition
+- Fix MutationObserver leak on container change
+- Add translation retry with backoff and fallback to Netflix originals
+- Cap cue queue at 1000 entries
+- Add 10s timeout on service worker messages
+- Use collision-safe JSON cache keys
+- Add batch missing translation retry in service worker
+- Global dedup in prefetch to prevent duplicate cue processing
+
+### v1.0.0
+- Initial release
 
 ---
 
 ## Future Improvements
 
 - **Multi-platform support** — Extend subtitle detection to YouTube, Disney+, and Prime Video
+- **Real-time audio translation** — Web Speech API for ASR + LLM translation for non-subtitled content
 - **Streaming translation** — Use SSE/streaming API responses to display partial translations as they generate
-- **Subtitle timing sync** — Map translated cues to Netflix's internal timing data for frame-perfect display
 - **Translation memory** — Export/import cached translations for sharing across devices
 - **Model auto-detection** — Query `/v1/models` endpoint to auto-populate the model selector
 

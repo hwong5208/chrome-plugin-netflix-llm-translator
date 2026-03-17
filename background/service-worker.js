@@ -54,8 +54,11 @@ async function handleTranslation({ text, settings }) {
     ],
     temperature: 0,
     max_tokens: 256,
-    chat_template_kwargs: { enable_thinking: false },
   };
+  // Only include MLX-specific field for MLX models
+  if (settings.modelName && settings.modelName.toLowerCase().includes('mlx')) {
+    body.chat_template_kwargs = { enable_thinking: false };
+  }
 
   const response = await fetch(settings.apiEndpoint, {
     method: 'POST',
@@ -95,8 +98,10 @@ async function handleBatchTranslation({ texts, settings }) {
     ],
     temperature: 0,
     max_tokens: Math.max(texts.length * 100, 256),
-    chat_template_kwargs: { enable_thinking: false },
   };
+  if (settings.modelName && settings.modelName.toLowerCase().includes('mlx')) {
+    body.chat_template_kwargs = { enable_thinking: false };
+  }
 
   const response = await fetch(settings.apiEndpoint, {
     method: 'POST',
