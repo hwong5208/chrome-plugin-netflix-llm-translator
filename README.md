@@ -26,6 +26,8 @@ hardware — no cloud, no subscription, no data leaves your network.
 - **Two-tier cache** — L1 in-memory (instant) + L2 IndexedDB (persists across sessions)
 - **3-worker parallelism** — concurrent batch translation with lookahead for next 5 cues
 - **Smooth transitions** — 150ms opacity fade-in/out, no subtitle flicker
+- **Genre prompt presets** — one-click prompts for General, Anime, and Documentary
+- **8 languages built-in** — dropdown with top languages + custom option
 - **Any OpenAI-compatible API** — works with MLX, vLLM, Ollama, llama.cpp, LM Studio, etc.
 - **Fully local** — all translation stays on your LAN
 
@@ -118,15 +120,16 @@ local-llm-translator/
 
 Click the extension icon to open the settings popup.
 
-| Setting          | Default                                     | Description                            |
-| ---------------- | ------------------------------------------- | -------------------------------------- |
-| Enabled          | `true`                                      | Toggle translation on/off              |
-| API Endpoint     | `http://10.0.0.7:8000/v1/chat/completions`  | OpenAI-compatible completions URL      |
-| Model            | `Qwen3.5-9B-MLX-4bit`                       | Model name sent in API request         |
-| API Key          | _(empty)_                                   | Optional Bearer token                  |
-| Target Language  | `Traditional Chinese`                       | Injected into system prompt template   |
-| Font Size        | `2.8vw`                                     | CSS font size for translated subtitles |
-| System Prompt    | _(subtitle translator template)_            | Supports `{{targetLanguage}}` variable |
+| Setting          | Default                                     | Description                                      |
+| ---------------- | ------------------------------------------- | ------------------------------------------------ |
+| Enabled          | `true`                                      | Toggle translation on/off                        |
+| API Endpoint     | `http://10.0.0.7:8000/v1/chat/completions`  | OpenAI-compatible completions URL                |
+| Model            | `Qwen3.5-9B-MLX-4bit`                       | Model name sent in API request                   |
+| API Key          | _(empty)_                                   | Optional Bearer token                            |
+| Translate To     | `Traditional Chinese`                       | Dropdown with 8 languages + custom option        |
+| Font Size        | `2.8vw`                                     | CSS font size for translated subtitles           |
+| Prompt Preset    | `General`                                   | One-click genre prompts: General, Anime, Documentary |
+| System Prompt    | _(auto-filled by preset)_                   | Editable, supports `{{targetLanguage}}` variable |
 
 Use **Verify Service** to test connectivity — it shows the model name, a sample translation,
 response latency, and token throughput (tok/s).
