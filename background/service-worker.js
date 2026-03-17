@@ -94,7 +94,7 @@ async function handleBatchTranslation({ texts, settings }) {
       { role: 'user', content: `Translate each numbered line. Return ONLY translations in the same [1], [2], ... format, one per line:\n\n${numberedInput}` },
     ],
     temperature: 0,
-    max_tokens: texts.length * 100,
+    max_tokens: Math.max(texts.length * 100, 256),
     chat_template_kwargs: { enable_thinking: false },
   };
 
@@ -114,19 +114,32 @@ async function handleBatchTranslation({ texts, settings }) {
     throw new Error('Empty batch translation response');
   }
 
+  // Detect if response was truncated by token limit
+  const finishReason = data.choices?.[0]?.finish_reason;
+  const wasTruncated = finishReason === 'length';
+
   content = cleanTranslation(content);
 
   // Parse numbered responses: [1] translation, [2] translation, ...
   const translations = {};
   const lines = content.split('\n');
+  let lastParsedIdx = -1;
   for (const line of lines) {
     const match = line.match(/^\[(\d+)\]\s*(.+)/);
     if (match) {
       const idx = parseInt(match[1]) - 1;
       if (idx >= 0 && idx < texts.length) {
         translations[texts[idx]] = match[2].trim();
+        lastParsedIdx = idx;
       }
     }
+  }
+
+  // If truncated by max_tokens, the last parsed entry may be incomplete — discard it
+  if (wasTruncated && lastParsedIdx >= 0) {
+    const lastText = texts[lastParsedIdx];
+    delete translations[lastText];
+    console.warn(`[LLM Translator] Batch truncated at [${lastParsedIdx + 1}], will retry individually`);
   }
 
   // Fix #8: Retry missing translations individually
