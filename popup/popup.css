@@ -1,0 +1,307 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 380px;
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #0b0f19;
+  color: #f0f4f8;
+}
+
+.container {
+  padding: 14px 16px;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(30, 45, 64, 0.9);
+}
+
+h1 {
+  font-size: 14px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #10b981 0%, #34d399 50%, #06b6d4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-align: center;
+}
+
+.close-btn {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #475569;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.25s ease;
+}
+
+.close-btn:hover {
+  color: #f0f4f8;
+}
+
+/* Fields */
+.field {
+  margin-bottom: 8px;
+}
+
+.field label:not(.toggle-label) {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.field input[type="text"],
+.field input[type="password"],
+.field textarea {
+  width: 100%;
+  padding: 7px 10px;
+  background: rgba(21, 28, 44, 0.8);
+  border: 1px solid rgba(30, 45, 64, 0.9);
+  border-radius: 6px;
+  color: #f0f4f8;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  outline: none;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.field select {
+  width: 100%;
+  padding: 7px 10px;
+  background: rgba(21, 28, 44, 0.8);
+  border: 1px solid rgba(30, 45, 64, 0.9);
+  border-radius: 6px;
+  color: #f0f4f8;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.field select:focus {
+  border-color: rgba(16, 185, 129, 0.5);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.1);
+}
+
+.field select option {
+  background: #151c2c;
+  color: #f0f4f8;
+  padding: 8px;
+}
+
+.custom-language-input {
+  margin-top: 6px;
+  display: none;
+}
+
+.custom-language-input.visible {
+  display: block;
+}
+
+.field input:focus,
+.field textarea:focus {
+  border-color: rgba(16, 185, 129, 0.5);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.1);
+}
+
+.field input::placeholder,
+.field textarea::placeholder {
+  color: #475569;
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 58px;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* Toggle switch */
+.toggle-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: #f0f4f8;
+  padding: 7px 10px;
+  background: rgba(21, 28, 44, 0.8);
+  border: 1px solid rgba(30, 45, 64, 0.9);
+  border-radius: 6px;
+  transition: border-color 0.25s ease;
+}
+
+.toggle-label:hover {
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.toggle-label input {
+  display: none;
+}
+
+.toggle-slider {
+  width: 38px;
+  height: 20px;
+  min-width: 38px;
+  background: #1e2d40;
+  border: 1px solid rgba(30, 45, 64, 0.9);
+  border-radius: 12px;
+  position: relative;
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+
+.toggle-slider::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #94a3b8;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.25s ease, background 0.25s ease;
+}
+
+.toggle-label input:checked + .toggle-slider {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.toggle-label input:checked + .toggle-slider::after {
+  transform: translateX(18px);
+  background: #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+}
+
+/* Preset chips */
+.preset-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.preset-chip {
+  padding: 4px 10px;
+  background: rgba(21, 28, 44, 0.8);
+  border: 1px solid rgba(30, 45, 64, 0.9);
+  border-radius: 14px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.preset-chip:hover {
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #f0f4f8;
+}
+
+.preset-chip.active {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #34d399;
+}
+
+/* Action buttons */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+#saveBtn {
+  padding: 8px 20px;
+  background: linear-gradient(135deg, #10b981, #34d399);
+  color: #022c22;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+}
+
+#saveBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 32px rgba(16, 185, 129, 0.5);
+}
+
+.verify-btn {
+  padding: 8px 20px;
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid rgba(30, 45, 64, 0.9);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  transition: border-color 0.25s ease, color 0.25s ease, background 0.25s ease;
+}
+
+.verify-btn:hover {
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #f0f4f8;
+  background: rgba(21, 28, 44, 0.8);
+}
+
+.verify-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Status messages */
+.status {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  margin-top: 8px;
+  min-height: 16px;
+  white-space: pre-line;
+  line-height: 1.6;
+  padding: 0 2px;
+}
+
+.status.success {
+  color: #34d399;
+}
+
+.status.error {
+  color: #f87171;
+}
+
+.status.loading {
+  color: #94a3b8;
+}

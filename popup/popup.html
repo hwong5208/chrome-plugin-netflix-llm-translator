@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>LLM Subtitle Translator</h1>
+      <button id="closeBtn" class="close-btn" title="Close">&times;</button>
+    </div>
+
+    <div class="field">
+      <label class="toggle-label">
+        <span>Enabled</span>
+        <input type="checkbox" id="enabled" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div class="field">
+      <label for="apiEndpoint">API Endpoint</label>
+      <input type="text" id="apiEndpoint" placeholder="http://10.0.0.7:8000/v1/chat/completions">
+    </div>
+
+    <div class="field">
+      <label for="modelName">Model</label>
+      <input type="text" id="modelName" placeholder="Qwen3.5-9B-MLX-4bit">
+    </div>
+
+    <div class="field">
+      <label for="apiKey">API Key (optional)</label>
+      <input type="password" id="apiKey" placeholder="Leave empty if not required">
+    </div>
+
+    <div class="field">
+      <label for="targetLanguage">Translate To</label>
+      <select id="targetLanguage">
+        <option value="Traditional Chinese">Traditional Chinese (繁體中文)</option>
+        <option value="Simplified Chinese">Simplified Chinese (简体中文)</option>
+        <option value="Japanese">Japanese (日本語)</option>
+        <option value="Korean">Korean (한국어)</option>
+        <option value="Spanish">Spanish (Español)</option>
+        <option value="French">French (Français)</option>
+        <option value="German">German (Deutsch)</option>
+        <option value="Portuguese">Portuguese (Português)</option>
+        <option value="custom">Custom...</option>
+      </select>
+      <input type="text" id="customLanguage" class="custom-language-input" placeholder="Enter language name, e.g. Thai, Vietnamese...">
+    </div>
+
+    <div class="field">
+      <label for="fontSize">Translation Font Size</label>
+      <input type="text" id="fontSize" placeholder="28px">
+    </div>
+
+    <div class="field">
+      <label>Prompt Preset</label>
+      <div class="preset-chips">
+        <button class="preset-chip active" data-preset="general">General</button>
+        <button class="preset-chip" data-preset="anime">Anime</button>
+        <button class="preset-chip" data-preset="documentary">Documentary</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="systemPrompt">System Prompt</label>
+      <textarea id="systemPrompt" rows="4" placeholder="Translation system prompt..."></textarea>
+    </div>
+
+    <div class="actions">
+      <button id="saveBtn">Save Settings</button>
+      <button id="verifyBtn" class="verify-btn">Verify Service</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

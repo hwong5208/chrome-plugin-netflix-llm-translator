@@ -1,0 +1,44 @@
+#llm-translation-overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  /* ~10% from bottom — clears Netflix controls, matches industry standard safe area */
+  bottom: 10vh;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  z-index: 2147483647;
+  pointer-events: none;
+  gap: 2px;
+  /* Smooth fade transition */
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+#llm-translation-overlay.llm-visible {
+  opacity: 1;
+}
+
+/* Shared Netflix-matching base style */
+#llm-translation-overlay .llm-original-line,
+#llm-translation-overlay .llm-translated-line {
+  font-family: Consolas, 'Lucida Console', Menlo, Monaco, Arial, Helvetica, sans-serif;
+  font-weight: bold;
+  line-height: 1.3;
+  text-align: center;
+  color: #ffffff;
+  text-shadow: #000000 0px 0px 7px;
+  padding: 0 0.5vw;
+  white-space: pre-line;
+}
+
+/* Original (top line) — full Netflix size */
+#llm-translation-overlay .llm-original-line {
+  font-size: 2.8vw;
+}
+
+/* Translation (bottom line) — slightly smaller, yellow for distinction */
+#llm-translation-overlay .llm-translated-line {
+  font-size: 2.4vw;
+  color: #ffff00;
+}

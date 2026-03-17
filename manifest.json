@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Local LLM Subtitle Translator",
+  "version": "1.0.0",
+  "description": "Translate Netflix subtitles using a local LLM via OpenAI-compatible API",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://www.netflix.com/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.netflix.com/*"],
+      "js": ["content/prefetch.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.netflix.com/*"],
+      "js": [
+        "content/cache.js",
+        "content/translator.js",
+        "content/netflix.js",
+        "content/content.js"
+      ],
+      "css": ["styles/subtitle.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
