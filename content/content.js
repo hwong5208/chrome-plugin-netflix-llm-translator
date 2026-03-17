@@ -14,6 +14,7 @@
 
   let settings = { ...DEFAULT_SETTINGS };
   let cueQueue = []; // ordered list of all known cues for lookahead
+  const MAX_QUEUE = 1000;
 
   async function init() {
     console.log('[LLM Translator] Loading...');
@@ -77,13 +78,17 @@
   let pendingCues = [];
 
   function enqueueCues(cues) {
-    // Merge into known cue list (for lookahead)
+    // Merge into known cue list (for lookahead), cap at MAX_QUEUE
     const known = new Set(cueQueue);
     for (const cue of cues) {
       if (!known.has(cue)) {
         cueQueue.push(cue);
         known.add(cue);
       }
+    }
+    // Fix #6: Trim oldest entries to prevent unbounded growth
+    if (cueQueue.length > MAX_QUEUE) {
+      cueQueue.splice(0, cueQueue.length - MAX_QUEUE);
     }
 
     // Add to pending prefetch queue
@@ -229,17 +234,32 @@
     // Kick off lookahead for upcoming cues in parallel
     triggerLookahead(text);
 
-    try {
-      const translation = await Translator.translate(text, settings);
-      TranslationCache.set(text, translation, settings.targetLanguage);
+    // Fix #4: Retry up to 2 times on failure, fallback to showing originals
+    const MAX_RETRIES = 1;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const translation = await Translator.translate(text, settings);
+        TranslationCache.set(text, translation, settings.targetLanguage);
 
-      // Only show if this subtitle is still on screen
-      if (NetflixSubtitles.getCurrentText() === text) {
-        NetflixSubtitles.displayTranslation(container, text, translation);
+        // Only show if this subtitle is still on screen
+        if (NetflixSubtitles.getCurrentText() === text) {
+          NetflixSubtitles.displayTranslation(container, text, translation);
+        }
+        return; // success — exit retry loop
+      } catch (err) {
+        console.warn(
+          `[LLM Translator] Translation attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`,
+          err.message
+        );
+        if (attempt < MAX_RETRIES) {
+          // Brief backoff before retry
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        }
       }
-    } catch (err) {
-      console.warn('[LLM Translator] Translation failed:', err.message);
     }
+    // All retries exhausted — ensure Netflix originals are visible
+    console.warn('[LLM Translator] All retries failed, showing original subtitles');
+    NetflixSubtitles.showOriginalSubtitles();
   }
 
   // Translate next N uncached cues after the current one

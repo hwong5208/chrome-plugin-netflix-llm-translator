@@ -22,8 +22,9 @@ const TranslationCache = (() => {
     });
   }
 
+  // Fix #5: Use JSON.stringify for collision-safe cache keys
   function makeKey(text, language) {
-    return `${language || ''}|||${text}`;
+    return JSON.stringify([language || '', text]);
   }
 
   // L1: sync memory lookup (instant, hot path)
@@ -45,9 +46,13 @@ const TranslationCache = (() => {
         const tx = store.transaction(STORE_NAME, 'readonly');
         const req = tx.objectStore(STORE_NAME).get(makeKey(text, language));
         req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => resolve(null);
+        req.onerror = () => {
+          console.warn('[LLM Cache] DB read error:', req.error);
+          resolve(null);
+        };
       });
-    } catch {
+    } catch (err) {
+      console.warn('[LLM Cache] DB access failed:', err);
       return null;
     }
   }

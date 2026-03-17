@@ -43,6 +43,10 @@
     return response;
   };
 
+  // Fix #9: Global dedup to prevent re-posting cues from reloaded subtitle files
+  const globalSeen = new Set();
+  const MAX_GLOBAL_SEEN = 5000;
+
   function tryParseSubtitles(text) {
     let cues = [];
 
@@ -52,9 +56,20 @@
       cues = parseWebVTT(text);
     }
 
-    if (cues.length > 0) {
-      console.log(`[LLM Prefetch] Found ${cues.length} subtitle cues`);
-      window.postMessage({ type: 'LLM_SUBTITLE_CUES', cues }, '*');
+    // Filter out globally seen cues, cap Set size to prevent memory leak
+    const newCues = cues.filter((c) => !globalSeen.has(c));
+    for (const c of newCues) {
+      if (globalSeen.size >= MAX_GLOBAL_SEEN) {
+        // Evict oldest entry
+        const first = globalSeen.values().next().value;
+        globalSeen.delete(first);
+      }
+      globalSeen.add(c);
+    }
+
+    if (newCues.length > 0) {
+      console.log(`[LLM Prefetch] Found ${newCues.length} new subtitle cues`);
+      window.postMessage({ type: 'LLM_SUBTITLE_CUES', cues: newCues }, '*');
     }
   }
 

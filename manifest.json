@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Local LLM Subtitle Translator",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Translate Netflix subtitles using a local LLM via OpenAI-compatible API",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [

@@ -87,12 +87,6 @@ async function handleBatchTranslation({ texts, settings }) {
   // Build a numbered list for the LLM to translate
   const numberedInput = texts.map((t, i) => `[${i + 1}] ${t}`).join('\n');
 
-  const batchPrompt = `${resolvedSystemPrompt}
-
-Translate each numbered subtitle below. Return ONLY the translations in the same numbered format [1], [2], etc. One translation per line.
-
-${numberedInput}`;
-
   const body = {
     model: settings.modelName,
     messages: [
@@ -131,6 +125,22 @@ ${numberedInput}`;
       const idx = parseInt(match[1]) - 1;
       if (idx >= 0 && idx < texts.length) {
         translations[texts[idx]] = match[2].trim();
+      }
+    }
+  }
+
+  // Fix #8: Retry missing translations individually
+  const missing = texts.filter((t) => !translations[t]);
+  if (missing.length > 0) {
+    console.warn(
+      `[LLM Translator] Batch: ${missing.length}/${texts.length} missing, retrying individually`
+    );
+    for (const text of missing) {
+      try {
+        const result = await handleTranslation({ text, settings });
+        translations[text] = result.translation;
+      } catch (e) {
+        console.warn(`[LLM Translator] Individual retry failed for: "${text.slice(0, 40)}..."`);
       }
     }
   }

@@ -3,9 +3,11 @@ const NetflixSubtitles = (() => {
   let subtitleObserver = null;
   let bodyObserver = null;
   let lastSubtitleText = '';
+  let lastObservedContainer = null;
   let onSubtitleChange = null;
   let translationOverlay = null;
   let hideStyleEl = null;
+  let hideTimeoutId = null;
 
   const SUBTITLE_CONTAINER_SELECTORS = [
     '.player-timedtext',
@@ -68,12 +70,22 @@ const NetflixSubtitles = (() => {
       bodyObserver.disconnect();
       bodyObserver = null;
     }
+    if (hideTimeoutId) {
+      clearTimeout(hideTimeoutId);
+      hideTimeoutId = null;
+    }
     if (translationOverlay) {
       translationOverlay.remove();
       translationOverlay = null;
     }
+    // Remove hide style so Netflix originals are visible after stop
+    if (hideStyleEl && document.contains(hideStyleEl)) {
+      hideStyleEl.remove();
+      hideStyleEl = null;
+    }
     showOriginalSubtitles();
     lastSubtitleText = '';
+    lastObservedContainer = null;
     onSubtitleChange = null;
   }
 
@@ -85,7 +97,7 @@ const NetflixSubtitles = (() => {
 
     bodyObserver = new MutationObserver(() => {
       const container = findSubtitleContainer();
-      if (container && (!subtitleObserver || !document.contains(subtitleObserver._target))) {
+      if (container && container !== lastObservedContainer) {
         observeSubtitles(container);
       }
     });
@@ -93,16 +105,19 @@ const NetflixSubtitles = (() => {
     bodyObserver.observe(document.body, { childList: true, subtree: true });
   }
 
+  // Fix #3: Track lastObservedContainer to prevent observer leak
   function observeSubtitles(container) {
+    if (subtitleObserver && lastObservedContainer === container) return;
+
     if (subtitleObserver) {
       subtitleObserver.disconnect();
     }
 
+    lastObservedContainer = container;
+
     subtitleObserver = new MutationObserver(() => {
       processSubtitles(container);
     });
-
-    subtitleObserver._target = container;
 
     subtitleObserver.observe(container, {
       childList: true,
@@ -125,6 +140,8 @@ const NetflixSubtitles = (() => {
       }
     });
 
+    // Dedup: skip if same text still on screen.
+    // Backward seek is handled by hideOverlay() resetting lastSubtitleText to ''.
     if (currentText === lastSubtitleText) return;
     lastSubtitleText = currentText;
 
@@ -143,6 +160,12 @@ const NetflixSubtitles = (() => {
 
   // Called when translation is ready — smooth fade-in swap
   function displayTranslation(container, originalText, translatedText) {
+    // Fix #2: Cancel any pending hide timeout
+    if (hideTimeoutId) {
+      clearTimeout(hideTimeoutId);
+      hideTimeoutId = null;
+    }
+
     const overlay = getOrCreateOverlay();
 
     // Build new content off-screen, then swap with transition
@@ -167,14 +190,20 @@ const NetflixSubtitles = (() => {
     hideOriginalSubtitles();
   }
 
+  // Fix #2: Track timeout ID, prevent stale timeouts from hiding new content
   function hideOverlay() {
     if (translationOverlay) {
+      if (hideTimeoutId) {
+        clearTimeout(hideTimeoutId);
+      }
       translationOverlay.classList.remove('llm-visible');
-      // Let CSS transition finish before hiding
-      setTimeout(() => {
+      // Reset lastSubtitleText so re-appearing text is treated as new (Fix #1)
+      lastSubtitleText = '';
+      hideTimeoutId = setTimeout(() => {
         if (translationOverlay && !translationOverlay.classList.contains('llm-visible')) {
           translationOverlay.style.display = 'none';
         }
+        hideTimeoutId = null;
       }, 150);
     }
   }
