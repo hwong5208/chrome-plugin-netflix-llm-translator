@@ -87,12 +87,6 @@
     NetflixSubtitles.start((text, container) => {
       handleNewSubtitle(text, container);
     });
-
-    // Abort in-flight requests on seek/skip and re-prioritize prefetch
-    NetflixSubtitles.onSeek(() => {
-      Translator.abortAll();
-      reprioritizePrefetch();
-    });
   }
 
   // ── Prefetch queue ────────────────────────────────────────────────
@@ -123,30 +117,6 @@
     if (!prefetchRunning) {
       runPrefetch();
     }
-  }
-
-  // Re-prioritize pending cues after a seek — move cues near current
-  // playback position to the front of the queue
-  function reprioritizePrefetch() {
-    const currentText = NetflixSubtitles.getCurrentText();
-    if (!currentText || pendingCues.length === 0) return;
-
-    const currentIdx = cueQueue.indexOf(currentText);
-    if (currentIdx === -1) return;
-
-    // Sort pending cues by proximity to current position in cueQueue
-    const posMap = new Map();
-    for (let i = 0; i < cueQueue.length; i++) {
-      posMap.set(cueQueue[i], i);
-    }
-
-    pendingCues.sort((a, b) => {
-      const posA = posMap.get(a) ?? Infinity;
-      const posB = posMap.get(b) ?? Infinity;
-      return Math.abs(posA - currentIdx) - Math.abs(posB - currentIdx);
-    });
-
-    console.log(`[LLM Translator] Reprioritized ${pendingCues.length} pending cues around position ${currentIdx}`);
   }
 
   async function runPrefetch() {

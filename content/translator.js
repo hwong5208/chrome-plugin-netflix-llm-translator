@@ -2,7 +2,7 @@
 // Handles both single and batch translations with dedup, timeout, and abort.
 const Translator = (() => {
   const pendingRequests = new Map(); // key -> { promise, abort }
-  const MESSAGE_TIMEOUT = 10000; // 10 seconds
+  const MESSAGE_TIMEOUT = 60000; // 60 seconds — needs headroom for slow LLM servers over network
   let abortController = new AbortController();
 
   // Abort all in-flight translation requests (e.g., on seek)
@@ -22,7 +22,7 @@ const Translator = (() => {
       }
 
       const timer = setTimeout(() => {
-        reject(new Error('Translation request timeout (10s)'));
+        reject(new Error('Translation request timeout (60s)'));
       }, MESSAGE_TIMEOUT);
 
       const onAbort = () => {

@@ -13,6 +13,7 @@ const NetflixSubtitles = (() => {
   let translationOverlay = null;
   let hideStyleEl = null;
   let hideTimeoutId = null;
+  let seekDebounceId = null;
 
   const SUBTITLE_CONTAINER_SELECTORS = [
     '.player-timedtext',
@@ -84,6 +85,10 @@ const NetflixSubtitles = (() => {
       clearTimeout(hideTimeoutId);
       hideTimeoutId = null;
     }
+    if (seekDebounceId) {
+      clearTimeout(seekDebounceId);
+      seekDebounceId = null;
+    }
     if (translationOverlay) {
       translationOverlay.remove();
       translationOverlay = null;
@@ -153,11 +158,25 @@ const NetflixSubtitles = (() => {
     lastSubtitleText = currentText;
 
     if (!currentText) {
-      // Subtitle cleared — indicates seek, skip, or natural gap
+      // Subtitle cleared — could be natural gap or actual seek.
+      // Debounce: only fire seek callback if no new subtitle appears
+      // within 2s (natural gaps are much shorter).
       hideOverlay();
       showOriginalSubtitles();
-      if (onSeekCallback) onSeekCallback();
+      if (onSeekCallback) {
+        if (seekDebounceId) clearTimeout(seekDebounceId);
+        seekDebounceId = setTimeout(() => {
+          seekDebounceId = null;
+          onSeekCallback();
+        }, 2000);
+      }
       return;
+    }
+
+    // New subtitle appeared — cancel any pending seek detection
+    if (seekDebounceId) {
+      clearTimeout(seekDebounceId);
+      seekDebounceId = null;
     }
 
     if (onSubtitleChange) {
