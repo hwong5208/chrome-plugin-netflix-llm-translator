@@ -194,6 +194,13 @@ Any server exposing an OpenAI-compatible `/v1/chat/completions` endpoint:
 
 ## Changelog
 
+### v1.4.0
+- **Stability fix** — removed aggressive seek-abort that was killing in-flight prefetch on every subtitle gap
+- **Increased timeout** — translation request timeout raised from 10s to 60s for slower network/server setups
+- **Conservative defaults** — fixed batch=2, workers=1 (no dynamic scaling) for reliable operation
+- **Subtitle backdrop** — semi-transparent dark background behind each subtitle line for better readability
+- **Seek debounce** — subtitle gaps no longer falsely trigger seek detection; only real seeks (2s+ gap) are detected
+
 ### v1.2.0
 - **Adaptive throughput controller** — auto-tunes batch size (2–15) and worker count (1–5) based on LLM latency
 - **Circuit breaker** — stops requests after 5 consecutive failures, 30s cooldown with auto-recovery probe
