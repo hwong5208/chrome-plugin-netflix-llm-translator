@@ -2,7 +2,7 @@
 // Hardcoded batch=2, workers=1 — no dynamic scaling for now.
 const Adaptive = (() => {
   const state = {
-    batchSize: 2,
+    batchSize: 5,
     concurrency: 1,
     activeRequests: 0,
     errors: 0,
