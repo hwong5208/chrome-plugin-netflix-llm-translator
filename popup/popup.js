@@ -42,6 +42,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('closeBtn').addEventListener('click', () => window.close());
   document.getElementById('clearCacheBtn').addEventListener('click', clearCache);
 
+  // Toggle applies immediately without needing Save
+  document.getElementById('enabled').addEventListener('change', () => {
+    saveSettings();
+  });
+
   const langSelect = document.getElementById('targetLanguage');
   const customInput = document.getElementById('customLanguage');
   langSelect.addEventListener('change', () => {
@@ -229,7 +234,7 @@ function clearCache() {
     }
     chrome.tabs.sendMessage(tabs[0].id, { type: 'clearCache' }, (resp) => {
       if (chrome.runtime.lastError) {
-        showStatus('Open a Netflix tab first, then try again', 'error');
+        showStatus('Open a Netflix or Prime Video tab first, then try again', 'error');
         return;
       }
       if (resp?.success) {

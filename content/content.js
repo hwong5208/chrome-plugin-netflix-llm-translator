@@ -13,6 +13,7 @@
   };
 
   let settings = { ...DEFAULT_SETTINGS };
+  let provider = null; // active SubtitleProvider (Netflix, PrimeVideo, etc.)
   let cueQueue = []; // ordered list of all known cues for lookahead
   const MAX_QUEUE = 1000;
 
@@ -21,6 +22,11 @@
   function model() { return settings.modelName; }
 
   async function init() {
+    provider = SubtitleProvider.detect();
+    if (!provider) {
+      console.warn('[LLM Translator] Unsupported platform, exiting');
+      return;
+    }
     console.log('[LLM Translator] Loading...');
 
     const stored = await new Promise((resolve) => {
@@ -60,7 +66,7 @@
         updateSubtitleStyle();
 
         if (!settings.enabled) {
-          NetflixSubtitles.stop();
+          provider.stop();
         } else {
           startObserving();
         }
@@ -84,7 +90,7 @@
   }
 
   function startObserving() {
-    NetflixSubtitles.start((text, container) => {
+    provider.start((text, container) => {
       handleNewSubtitle(text, container);
     });
   }
@@ -235,14 +241,14 @@
   async function handleNewSubtitle(text, container) {
     // Circuit breaker — show originals if server is down
     if (Adaptive.isCircuitOpen()) {
-      NetflixSubtitles.showOriginalSubtitles();
+      provider.showOriginalSubtitles();
       return;
     }
 
     // L1: sync memory cache (instant)
     const cached = TranslationCache.get(text, lang(), model());
     if (cached) {
-      NetflixSubtitles.displayTranslation(container, text, cached);
+      provider.displayTranslation(container, text, cached);
       triggerLookahead(text);
       return;
     }
@@ -251,15 +257,15 @@
     const persisted = await TranslationCache.getFromDB(text, lang(), model());
     if (persisted) {
       TranslationCache.set(text, persisted, lang(), model());
-      if (NetflixSubtitles.getCurrentText() === text) {
-        NetflixSubtitles.displayTranslation(container, text, persisted);
+      if (provider.getCurrentText() === text) {
+        provider.displayTranslation(container, text, persisted);
       }
       triggerLookahead(text);
       return;
     }
 
-    // Cache miss — keep Netflix original visible while translating
-    NetflixSubtitles.showOriginalSubtitles();
+    // Cache miss — keep original subtitles visible while translating
+    provider.showOriginalSubtitles();
     triggerLookahead(text);
 
     // Retry up to 2 times on failure, fallback to showing originals
@@ -270,8 +276,8 @@
         const translation = await Translator.translate(text, settings);
         TranslationCache.set(text, translation, lang(), model());
 
-        if (NetflixSubtitles.getCurrentText() === text) {
-          NetflixSubtitles.displayTranslation(container, text, translation);
+        if (provider.getCurrentText() === text) {
+          provider.displayTranslation(container, text, translation);
         }
         return;
       } catch (err) {
@@ -286,7 +292,7 @@
       }
     }
     console.warn('[LLM Translator] All retries failed, showing original subtitles');
-    NetflixSubtitles.showOriginalSubtitles();
+    provider.showOriginalSubtitles();
   }
 
   // Translate next N uncached cues after the current one.

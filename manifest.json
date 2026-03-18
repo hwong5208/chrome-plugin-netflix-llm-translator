@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Local LLM Subtitle Translator",
-  "version": "1.4.1",
-  "description": "Translate Netflix subtitles using a local LLM via OpenAI-compatible API",
+  "version": "1.5.0",
+  "description": "Translate Netflix & Prime Video subtitles using a local LLM via OpenAI-compatible API",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://www.netflix.com/*",
@@ -14,18 +14,36 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.netflix.com/*"],
+      "matches": [
+        "https://www.netflix.com/*",
+        "https://www.amazon.com/gp/video/*",
+        "https://www.amazon.co.uk/gp/video/*",
+        "https://www.amazon.co.jp/gp/video/*",
+        "https://www.amazon.de/gp/video/*",
+        "https://www.primevideo.com/*",
+        "https://primevideo.com/*"
+      ],
       "js": ["content/prefetch.js"],
       "world": "MAIN",
       "run_at": "document_start"
     },
     {
-      "matches": ["https://www.netflix.com/*"],
+      "matches": [
+        "https://www.netflix.com/*",
+        "https://www.amazon.com/gp/video/*",
+        "https://www.amazon.co.uk/gp/video/*",
+        "https://www.amazon.co.jp/gp/video/*",
+        "https://www.amazon.de/gp/video/*",
+        "https://www.primevideo.com/*",
+        "https://primevideo.com/*"
+      ],
       "js": [
         "content/cache.js",
         "content/adaptive.js",
         "content/translator.js",
         "content/netflix.js",
+        "content/primevideo.js",
+        "content/provider.js",
         "content/content.js"
       ],
       "css": ["styles/subtitle.css"],

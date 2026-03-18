@@ -1,9 +1,9 @@
 # Local LLM Subtitle Translator
 
-A Chrome extension that translates Netflix subtitles in real-time using a local LLM via any
-OpenAI-compatible API endpoint. Bilingual subtitles are rendered in an overlay styled to match
-Netflix's native subtitle UI — seamless enough that it looks built-in. Powered by your own
-hardware — no cloud, no subscription, no data leaves your network.
+A Chrome extension that translates Netflix and Amazon Prime Video subtitles in real-time using a
+local LLM via any OpenAI-compatible API endpoint. Bilingual subtitles are rendered in an overlay
+styled to match the native subtitle UI — seamless enough that it looks built-in. Powered by your
+own hardware — no cloud, no subscription, no data leaves your network.
 
 ---
 
@@ -31,6 +31,7 @@ hardware — no cloud, no subscription, no data leaves your network.
 - **Smooth transitions** — 150ms opacity fade-in/out, no subtitle flicker
 - **Genre prompt presets** — one-click prompts for General, Anime, and Documentary
 - **8 languages built-in** — dropdown with top languages + custom option
+- **Multi-platform** — supports Netflix and Amazon Prime Video
 - **Any OpenAI-compatible API** — works with MLX, vLLM, Ollama, llama.cpp, LM Studio, Groq, OpenAI
 - **Fully local** — all translation stays on your LAN (or use a remote API if preferred)
 
@@ -39,7 +40,7 @@ hardware — no cloud, no subscription, no data leaves your network.
 ## Architecture
 
 ```
-Netflix Page (DOM)
+Streaming Page (DOM)        ← Netflix, Prime Video
       │
       ├── [prefetch.js]     ← MAIN world: intercepts XHR/Fetch, parses TTML & WebVTT
       │         │
@@ -51,7 +52,9 @@ Netflix Page (DOM)
       │         ├── [adaptive.js]    ← throughput controller + circuit breaker
       │         ├── [cache.js]       ← L1 Map (500 LRU) + L2 IndexedDB (30-day TTL)
       │         ├── [translator.js]  ← dedup, timeout, AbortController, batch support
-      │         └── [netflix.js]     ← SubtitleProvider: MutationObserver + overlay
+      │         ├── [provider.js]    ← platform detector (Netflix vs Prime Video)
+      │         ├── [netflix.js]     ← SubtitleProvider: Netflix MutationObserver + overlay
+      │         └── [primevideo.js]  ← SubtitleProvider: Prime Video MutationObserver + overlay
       │
       ▼
 [service-worker.js]         ← routes API calls (avoids CORS), batch retry
@@ -85,9 +88,10 @@ and auto-recovers when the server is back.
 `AbortController`, and the prefetch queue is re-sorted by proximity to the new playback position.
 This frees LLM capacity for the subtitles the user will actually see.
 
-**SubtitleProvider abstraction** — `netflix.js` implements a provider interface (`start`, `stop`,
-`onSeek`, `displayTranslation`, `getCurrentText`), making the core pipeline platform-agnostic and
-ready for future multi-platform support.
+**SubtitleProvider abstraction** — Each platform (Netflix, Prime Video) implements a provider
+interface (`start`, `stop`, `onSeek`, `displayTranslation`, `getCurrentText`). The `provider.js`
+module detects the current platform and returns the correct provider. The core pipeline in
+`content.js` is fully platform-agnostic.
 
 **Batch + parallel workers** — Subtitles are grouped into adaptive-sized batches and processed by
 concurrent workers. A single batch request is far cheaper than N individual requests because it
@@ -111,7 +115,9 @@ local-llm-translator/
 │   ├── prefetch.js              # XHR/Fetch intercept, TTML & WebVTT parsing
 │   ├── content.js               # Orchestrator: settings, prefetch, lookahead
 │   ├── adaptive.js              # Adaptive throughput controller + circuit breaker
-│   ├── netflix.js               # SubtitleProvider: MutationObserver + overlay
+│   ├── netflix.js               # SubtitleProvider: Netflix MutationObserver + overlay
+│   ├── primevideo.js            # SubtitleProvider: Prime Video MutationObserver + overlay
+│   ├── provider.js              # Platform detector (Netflix vs Prime Video)
 │   ├── translator.js            # Dedup, timeout, AbortController, batch support
 │   └── cache.js                 # L1 Map (LRU) + L2 IndexedDB (TTL, model-aware)
 ├── popup/
@@ -194,6 +200,12 @@ Any server exposing an OpenAI-compatible `/v1/chat/completions` endpoint:
 
 ## Changelog
 
+### v1.5.0
+- **Amazon Prime Video support** — subtitle translation now works on Prime Video (primevideo.com and amazon.com/gp/video)
+- **Platform provider abstraction** — automatic platform detection selects the correct subtitle provider (Netflix or Prime Video)
+- **UX: instant toggle** — "Dual Subtitles" toggle applies immediately without needing to click Save
+- **UX: clearer label** — renamed "Enabled" toggle to "Dual Subtitles" (ON = original + translation, OFF = original only)
+
 ### v1.4.0
 - **Stability fix** — removed aggressive seek-abort that was killing in-flight prefetch on every subtitle gap
 - **Increased timeout** — translation request timeout raised from 10s to 60s for slower network/server setups
@@ -232,7 +244,7 @@ Any server exposing an OpenAI-compatible `/v1/chat/completions` endpoint:
 
 ## Future Improvements
 
-- **Multi-platform support** — Extend subtitle detection to YouTube, Disney+, and Prime Video
+- **More platforms** — Extend subtitle detection to YouTube and Disney+
 - **Real-time audio translation** — Web Speech API for ASR + LLM translation for non-subtitled content
 - **Streaming translation** — Use SSE/streaming API responses to display partial translations as they generate
 - **Translation memory** — Export/import cached translations for sharing across devices
