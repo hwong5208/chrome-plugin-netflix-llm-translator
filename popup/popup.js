@@ -1,5 +1,6 @@
 const DEFAULT_SETTINGS = {
   enabled: true,
+  learnMode: false,
   apiEndpoint: 'http://10.0.0.7:8000/v1/chat/completions',
   modelName: 'Qwen3.5-9B-MLX-4bit',
   apiKey: '',
@@ -12,6 +13,7 @@ const DEFAULT_SETTINGS = {
 
 const fields = [
   'enabled',
+  'learnMode',
   'apiEndpoint',
   'modelName',
   'apiKey',
@@ -42,8 +44,19 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('closeBtn').addEventListener('click', () => window.close());
   document.getElementById('clearCacheBtn').addEventListener('click', clearCache);
 
-  // Toggle applies immediately without needing Save
+  // Toggles apply immediately without needing Save
+  // Mutual exclusion: Dual Subtitles and Learn English cannot both be ON
   document.getElementById('enabled').addEventListener('change', () => {
+    if (document.getElementById('enabled').checked) {
+      document.getElementById('learnMode').checked = false;
+    }
+    saveSettings();
+  });
+
+  document.getElementById('learnMode').addEventListener('change', () => {
+    if (document.getElementById('learnMode').checked) {
+      document.getElementById('enabled').checked = false;
+    }
     saveSettings();
   });
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Local LLM Subtitle Translator",
-  "version": "1.5.0",
+  "version": "1.7.0",
   "description": "Translate Netflix & Prime Video subtitles using a local LLM via OpenAI-compatible API",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
@@ -44,6 +44,8 @@
         "content/netflix.js",
         "content/primevideo.js",
         "content/provider.js",
+        "content/dictionary.js",
+        "content/wordexplain.js",
         "content/content.js"
       ],
       "css": ["styles/subtitle.css"],

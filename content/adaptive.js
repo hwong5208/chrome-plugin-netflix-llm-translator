@@ -1,9 +1,9 @@
 // Fixed throughput controller with circuit breaker.
-// Hardcoded batch=2, workers=1 — no dynamic scaling for now.
+// batch=5, workers=2 — parallel prefetch to reduce cache misses.
 const Adaptive = (() => {
   const state = {
     batchSize: 5,
-    concurrency: 1,
+    concurrency: 2,
     activeRequests: 0,
     errors: 0,
 

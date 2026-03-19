@@ -52,21 +52,41 @@ const PrimeVideoSubtitles = (() => {
     }
   }
 
+  function getAppendTarget() {
+    return document.fullscreenElement || document.webkitFullscreenElement || document.body;
+  }
+
   function getOrCreateOverlay() {
+    const target = getAppendTarget();
     if (translationOverlay && document.contains(translationOverlay)) {
+      // Re-parent if fullscreen state changed
+      if (translationOverlay.parentElement !== target) {
+        target.appendChild(translationOverlay);
+      }
       return translationOverlay;
     }
 
     translationOverlay = document.createElement('div');
     translationOverlay.id = 'llm-translation-overlay';
-    document.body.appendChild(translationOverlay);
+    target.appendChild(translationOverlay);
     return translationOverlay;
+  }
+
+  function handleFullscreenChange() {
+    if (translationOverlay && document.contains(translationOverlay)) {
+      const target = getAppendTarget();
+      if (translationOverlay.parentElement !== target) {
+        target.appendChild(translationOverlay);
+      }
+    }
   }
 
   function start(callback) {
     onSubtitleChange = callback;
     ensureHideStyle();
     watchForSubtitleContainer();
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
   }
 
   function onSeek(callback) {
@@ -74,6 +94,8 @@ const PrimeVideoSubtitles = (() => {
   }
 
   function stop() {
+    document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
     if (subtitleObserver) {
       subtitleObserver.disconnect();
       subtitleObserver = null;
@@ -205,13 +227,15 @@ const PrimeVideoSubtitles = (() => {
     const originalDiv = document.createElement('div');
     originalDiv.className = 'llm-original-line';
     originalDiv.textContent = originalText;
-
-    const translatedDiv = document.createElement('div');
-    translatedDiv.className = 'llm-translated-line';
-    translatedDiv.textContent = translatedText;
-
     overlay.appendChild(originalDiv);
-    overlay.appendChild(translatedDiv);
+
+    // Only add translation line if we have one (null = cache miss, show original only)
+    if (translatedText) {
+      const translatedDiv = document.createElement('div');
+      translatedDiv.className = 'llm-translated-line';
+      translatedDiv.textContent = translatedText;
+      overlay.appendChild(translatedDiv);
+    }
 
     overlay.style.display = 'flex';
     overlay.offsetHeight; // force layout

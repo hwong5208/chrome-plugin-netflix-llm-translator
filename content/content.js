@@ -10,6 +10,7 @@
       'You are a subtitle translator. Translate the following subtitle text into {{targetLanguage}}. Output only the translation. Keep it natural and concise for subtitles. Do not add quotation marks, explanations, or annotations.',
     fontSize: '2.8vw',
     subtitleColor: '#ffffff',
+    learnMode: false,
   };
 
   let settings = { ...DEFAULT_SETTINGS };
@@ -50,30 +51,56 @@
     window.addEventListener('message', (event) => {
       if (
         event.data?.type === 'LLM_SUBTITLE_CUES' &&
-        event.origin === window.location.origin &&
-        settings.enabled
+        event.origin === window.location.origin
       ) {
-        enqueueCues(event.data.cues);
+        if (settings.enabled && !settings.learnMode) {
+          enqueueCues(event.data.cues);
+        } else if (settings.learnMode) {
+          // Learn mode: prefetch word explanations for upcoming subtitles
+          const upcoming = event.data.cues.slice(0, 5); // next 5 subtitles
+          WordExplain.prefetchUpcoming(upcoming, settings);
+        }
       }
     });
 
     chrome.storage.onChanged.addListener((changes) => {
       if (changes.llmTranslatorSettings) {
+        const prev = settings;
         settings = {
           ...DEFAULT_SETTINGS,
           ...changes.llmTranslatorSettings.newValue,
         };
         updateSubtitleStyle();
 
-        if (!settings.enabled) {
+        // Clear word explanation cache if language or model changed
+        if (prev.targetLanguage !== settings.targetLanguage || prev.modelName !== settings.modelName) {
+          WordExplain.clearCache();
+        }
+
+        // Detect mode changes
+        const modeChanged = prev.enabled !== settings.enabled ||
+          prev.learnMode !== settings.learnMode;
+
+        if (modeChanged) {
+          // Stop current mode
           provider.stop();
-        } else {
-          startObserving();
+          WordExplain.destroy();
+
+          // Restart with correct callback
+          if (settings.learnMode) {
+            startObserving();
+          } else if (settings.enabled) {
+            startObserving();
+          }
+          // else: both off — show platform originals, no overlay
+        } else if (!settings.enabled && !settings.learnMode) {
+          provider.stop();
+          WordExplain.destroy();
         }
       }
     });
 
-    if (settings.enabled) {
+    if (settings.learnMode || settings.enabled) {
       startObserving();
     }
 
@@ -90,9 +117,19 @@
   }
 
   function startObserving() {
-    provider.start((text, container) => {
-      handleNewSubtitle(text, container);
-    });
+    if (settings.learnMode) {
+      provider.start((text, container) => {
+        handleLearnSubtitle(text, container);
+      });
+    } else {
+      provider.start((text, container) => {
+        handleNewSubtitle(text, container);
+      });
+    }
+  }
+
+  function handleLearnSubtitle(text, container) {
+    WordExplain.renderSubtitle(text, provider, settings);
   }
 
   // ── Prefetch queue ────────────────────────────────────────────────
@@ -207,6 +244,13 @@
         // Don't count aborts as failures
         return;
       }
+      // Extension context invalidated = service worker died, stop all prefetch
+      if (err.message?.includes('Extension context invalidated') ||
+          err.message?.includes('message channel closed')) {
+        console.warn('[LLM Translator] Service worker lost, stopping prefetch');
+        pendingCues = [];
+        return;
+      }
       Adaptive.record(0, false);
       console.warn(
         `[LLM Translator] Batch ${batchNum} failed: ${err.message}, falling back to individual`
@@ -224,6 +268,10 @@
           Adaptive.record(performance.now() - ft0, true);
         } catch (e) {
           if (e.message === 'Request aborted') break;
+          if (e.message?.includes('Extension context invalidated')) {
+            pendingCues = [];
+            break;
+          }
           fallbackFail++;
           Adaptive.record(0, false);
         }
@@ -239,9 +287,9 @@
   // ── Subtitle display with lookahead ─────────────────────────────────
 
   async function handleNewSubtitle(text, container) {
-    // Circuit breaker — show originals if server is down
+    // Circuit breaker — show original in overlay if server is down
     if (Adaptive.isCircuitOpen()) {
-      provider.showOriginalSubtitles();
+      provider.displayTranslation(container, text, null);
       return;
     }
 
@@ -264,8 +312,9 @@
       return;
     }
 
-    // Cache miss — keep original subtitles visible while translating
-    provider.showOriginalSubtitles();
+    // Cache miss — show original in overlay (no translation line yet) to avoid
+    // the flash from Netflix original → dual overlay when translation arrives
+    provider.displayTranslation(container, text, null);
     triggerLookahead(text);
 
     // Retry up to 2 times on failure, fallback to showing originals
@@ -282,6 +331,11 @@
         return;
       } catch (err) {
         if (err.message === 'Request aborted') return;
+        // Extension context invalidated = service worker died, no point retrying
+        if (err.message?.includes('Extension context invalidated')) {
+          console.warn('[LLM Translator] Service worker lost');
+          return;
+        }
         console.warn(
           `[LLM Translator] Translation attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`,
           err.message
@@ -291,8 +345,7 @@
         }
       }
     }
-    console.warn('[LLM Translator] All retries failed, showing original subtitles');
-    provider.showOriginalSubtitles();
+    console.warn('[LLM Translator] All retries failed, showing original in overlay');
   }
 
   // Translate next N uncached cues after the current one.
