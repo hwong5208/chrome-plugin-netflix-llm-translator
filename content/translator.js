@@ -51,7 +51,7 @@ const Translator = (() => {
     });
   }
 
-  async function translate(text, settings) {
+  async function translate(text, settings, context) {
     const key = text;
     // Dedup in-flight requests for the same text
     if (pendingRequests.has(key)) {
@@ -60,7 +60,7 @@ const Translator = (() => {
 
     const signal = abortController.signal;
     const promise = _sendMessage(
-      { type: 'translate', text, settings },
+      { type: 'translate', text, settings, ...(context || {}) },
       signal
     ).then((resp) => {
       pendingRequests.delete(key);
@@ -74,10 +74,10 @@ const Translator = (() => {
     return promise;
   }
 
-  async function translateBatch(texts, settings) {
+  async function translateBatch(texts, settings, context) {
     const signal = abortController.signal;
     const resp = await _sendMessage(
-      { type: 'translateBatch', texts, settings },
+      { type: 'translateBatch', texts, settings, ...(context || {}) },
       signal
     );
     return resp.translations || {};

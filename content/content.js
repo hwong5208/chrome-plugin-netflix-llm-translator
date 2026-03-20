@@ -21,6 +21,18 @@
   // Helper — current language and model for cache keying
   function lang() { return settings.targetLanguage; }
   function model() { return settings.modelName; }
+  function glossaryContext() {
+    const ctx = {};
+    try {
+      const show = Glossary.getShowTitle();
+      const gl = Glossary.getEntries();
+      if (show) ctx.showTitle = show;
+      if (Object.keys(gl).length > 0) ctx.glossary = gl;
+    } catch (e) {
+      // Glossary module not loaded — degrade gracefully
+    }
+    return ctx;
+  }
 
   async function init() {
     provider = SubtitleProvider.detect();
@@ -46,6 +58,15 @@
       modelName: settings.modelName,
       targetLanguage: settings.targetLanguage,
     });
+
+    // Load glossary for current show
+    const showTitle = provider.getShowTitle ? provider.getShowTitle() : '';
+    if (showTitle) {
+      try {
+        await Glossary.load(showTitle, settings.targetLanguage);
+      } catch (e) {}
+      console.log(`[LLM Translator] Show: "${showTitle}"`);
+    }
 
     // Listen for prefetched subtitle cues from MAIN world script
     window.addEventListener('message', (event) => {
@@ -75,6 +96,15 @@
         // Clear word explanation cache if language or model changed
         if (prev.targetLanguage !== settings.targetLanguage || prev.modelName !== settings.modelName) {
           WordExplain.clearCache();
+          // Reload glossary for new language
+          try {
+            const showTitle = provider.getShowTitle ? provider.getShowTitle() : '';
+            if (showTitle) {
+              Glossary.load(showTitle, settings.targetLanguage);
+            }
+          } catch (e) {
+            // Glossary module not loaded
+          }
         }
 
         // Detect mode changes
@@ -227,7 +257,7 @@
     Adaptive.incrementActive();
     const t0 = performance.now();
     try {
-      const translations = await Translator.translateBatch(batch, settings);
+      const translations = await Translator.translateBatch(batch, settings, glossaryContext());
       const elapsed = performance.now() - t0;
       const count = Object.keys(translations).length;
 
@@ -262,7 +292,7 @@
         if (Adaptive.isCircuitOpen()) break;
         const ft0 = performance.now();
         try {
-          const translation = await Translator.translate(text, settings);
+          const translation = await Translator.translate(text, settings, glossaryContext());
           TranslationCache.set(text, translation, lang(), model());
           fallbackOk++;
           Adaptive.record(performance.now() - ft0, true);
@@ -287,6 +317,9 @@
   // ── Subtitle display with lookahead ─────────────────────────────────
 
   async function handleNewSubtitle(text, container) {
+    // Detect proper nouns for glossary building
+    try { Glossary.detectNames(text); Glossary.maybeTranslate(settings); } catch (e) {}
+
     // Circuit breaker — show original in overlay if server is down
     if (Adaptive.isCircuitOpen()) {
       provider.displayTranslation(container, text, null);
@@ -322,7 +355,7 @@
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       if (Adaptive.isCircuitOpen()) break;
       try {
-        const translation = await Translator.translate(text, settings);
+        const translation = await Translator.translate(text, settings, glossaryContext());
         TranslationCache.set(text, translation, lang(), model());
 
         if (provider.getCurrentText() === text) {

@@ -256,10 +256,19 @@ const NetflixSubtitles = (() => {
     return lastSubtitleText;
   }
 
+  function getShowTitle() {
+    const title = document.title;
+    if (!title || title === 'Netflix') return '';
+    return title
+      .replace(/\s*[|\-–—]\s*Netflix.*$/i, '')
+      .replace(/^Netflix\s*[|\-–—]\s*/i, '')
+      .trim();
+  }
+
   return {
     start, stop, onSeek,
     displayTranslation, hideOverlay,
     showOriginalSubtitles, hideOriginalSubtitles,
-    getCurrentText,
+    getCurrentText, getShowTitle,
   };
 })();

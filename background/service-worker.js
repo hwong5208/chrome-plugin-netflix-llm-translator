@@ -49,6 +49,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'translateNames') {
+    handleNameTranslation(message).then(sendResponse).catch((err) => {
+      sendResponse({ error: err.message });
+    });
+    return true;
+  }
+
   if (message.type === 'getSettings') {
     chrome.storage.sync.get('llmTranslatorSettings', (result) => {
       sendResponse(result.llmTranslatorSettings || null);
@@ -75,12 +82,24 @@ function buildHeaders(apiKey) {
   return headers;
 }
 
+function enrichPrompt(systemPrompt, showTitle, glossary) {
+  if (showTitle?.trim()) {
+    systemPrompt += `\nYou are translating subtitles for "${showTitle}".`;
+  }
+  if (glossary && Object.keys(glossary).length > 0) {
+    const lines = Object.entries(glossary).map(([en, tr]) => `${en} = ${tr}`).join('\n');
+    systemPrompt += `\n\nUse these name translations consistently:\n${lines}`;
+  }
+  return systemPrompt;
+}
+
 // Single subtitle translation
-async function handleTranslation({ text, settings }) {
-  const resolvedSystemPrompt = settings.systemPrompt.replace(
+async function handleTranslation({ text, settings, showTitle, glossary }) {
+  let resolvedSystemPrompt = settings.systemPrompt.replace(
     /\{\{targetLanguage\}\}/g,
     settings.targetLanguage
   );
+  resolvedSystemPrompt = enrichPrompt(resolvedSystemPrompt, showTitle, glossary);
 
   const body = {
     model: settings.modelName,
@@ -117,11 +136,12 @@ async function handleTranslation({ text, settings }) {
 }
 
 // Batch subtitle translation — multiple subtitles in ONE LLM request
-async function handleBatchTranslation({ texts, settings }) {
-  const resolvedSystemPrompt = settings.systemPrompt.replace(
+async function handleBatchTranslation({ texts, settings, showTitle, glossary }) {
+  let resolvedSystemPrompt = settings.systemPrompt.replace(
     /\{\{targetLanguage\}\}/g,
     settings.targetLanguage
   );
+  resolvedSystemPrompt = enrichPrompt(resolvedSystemPrompt, showTitle, glossary);
 
   // Build a numbered list for the LLM to translate
   const numberedInput = texts.map((t, i) => `[${i + 1}] ${t}`).join('\n');
@@ -191,7 +211,7 @@ async function handleBatchTranslation({ texts, settings }) {
     );
     for (const text of missing) {
       try {
-        const result = await handleTranslation({ text, settings });
+        const result = await handleTranslation({ text, settings, showTitle, glossary });
         translations[text] = result.translation;
       } catch (e) {
         console.warn(`[LLM Translator] Individual retry failed for: "${text.slice(0, 40)}..."`);
@@ -335,4 +355,55 @@ Be concise. Do not skip any word.`,
   }
 
   return { explanations };
+}
+
+// Translate proper nouns/character names for glossary building
+async function handleNameTranslation({ names, showTitle, settings }) {
+  const lang = settings.targetLanguage;
+  const numberedInput = names.map((n, i) => `[${i + 1}] ${n}`).join('\n');
+
+  const body = {
+    model: settings.modelName,
+    messages: [
+      {
+        role: 'system',
+        content: `You are a translation assistant. Translate these character and place names from "${showTitle}" into ${lang}. Use the most widely recognized ${lang} translations. Return ONLY the translations in [1], [2], ... format, one per line.`,
+      },
+      { role: 'user', content: numberedInput },
+    ],
+    temperature: 0,
+    max_tokens: Math.max(names.length * 20, 128),
+  };
+  if (settings.modelName?.toLowerCase().includes('mlx')) {
+    body.chat_template_kwargs = { enable_thinking: false };
+  }
+
+  const response = await fetch(settings.apiEndpoint, {
+    method: 'POST',
+    headers: buildHeaders(settings.apiKey),
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  let content = data.choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error('Empty response');
+
+  content = cleanTranslation(content);
+
+  const translations = {};
+  for (const line of content.split('\n')) {
+    const match = line.match(/^\[(\d+)\]\s*(.+)/);
+    if (match) {
+      const idx = parseInt(match[1]) - 1;
+      if (idx >= 0 && idx < names.length) {
+        translations[names[idx]] = match[2].trim();
+      }
+    }
+  }
+
+  return { translations };
 }

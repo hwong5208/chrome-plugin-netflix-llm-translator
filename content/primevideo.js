@@ -263,10 +263,20 @@ const PrimeVideoSubtitles = (() => {
     return lastSubtitleText;
   }
 
+  function getShowTitle() {
+    const title = document.title;
+    if (!title || /^(Amazon\s+)?Prime\s+Video$/i.test(title)) return '';
+    return title
+      .replace(/\s*[|\-–—]\s*(Amazon\s+)?Prime\s+Video.*$/i, '')
+      .replace(/^Watch\s+/i, '')
+      .replace(/^(Amazon\s+)?Prime\s+Video\s*[|\-–—]\s*/i, '')
+      .trim();
+  }
+
   return {
     start, stop, onSeek,
     displayTranslation, hideOverlay,
     showOriginalSubtitles, hideOriginalSubtitles,
-    getCurrentText,
+    getCurrentText, getShowTitle,
   };
 })();

@@ -44,6 +44,7 @@
         "content/netflix.js",
         "content/primevideo.js",
         "content/provider.js",
+        "content/glossary.js",
         "content/dictionary.js",
         "content/wordexplain.js",
         "content/content.js"
