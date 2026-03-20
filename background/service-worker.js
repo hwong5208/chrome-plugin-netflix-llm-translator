@@ -144,7 +144,8 @@ async function handleBatchTranslation({ texts, settings, showTitle, glossary }) 
   resolvedSystemPrompt = enrichPrompt(resolvedSystemPrompt, showTitle, glossary);
 
   // Build a numbered list for the LLM to translate
-  const numberedInput = texts.map((t, i) => `[${i + 1}] ${t}`).join('\n');
+  // Flatten newlines in subtitles so multi-line subs don't break the [N] format
+  const numberedInput = texts.map((t, i) => `[${i + 1}] ${t.replace(/\n/g, ' ')}`).join('\n');
 
   const body = {
     model: settings.modelName,

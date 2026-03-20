@@ -1,9 +1,9 @@
 // Fixed throughput controller with circuit breaker.
-// batch=5, workers=2 — parallel prefetch to reduce cache misses.
+// batch=5, workers=1 — sequential prefetch to avoid GPU contention on single-GPU servers.
 const Adaptive = (() => {
   const state = {
     batchSize: 5,
-    concurrency: 2,
+    concurrency: 1,
     activeRequests: 0,
     errors: 0,
 
