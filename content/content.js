@@ -31,6 +31,11 @@
     } catch (e) {
       // Glossary module not loaded — degrade gracefully
     }
+    // Include episode info if the provider supports it
+    if (provider.getEpisodeInfo) {
+      const epInfo = provider.getEpisodeInfo();
+      if (epInfo) ctx.episodeInfo = epInfo;
+    }
     return ctx;
   }
 

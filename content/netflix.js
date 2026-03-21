@@ -265,10 +265,58 @@ const NetflixSubtitles = (() => {
       .trim();
   }
 
+  // Extract episode metadata from Netflix player UI
+  function getEpisodeInfo() {
+    const info = {};
+
+    // Netflix player shows "S1:E3" style text in the player UI
+    const seasonEpEl = document.querySelector('[data-uia="video-title"] span');
+    if (seasonEpEl) {
+      const seText = seasonEpEl.textContent.trim();
+      // Match patterns like "S1:E3", "Season 1, Episode 3", etc.
+      const match = seText.match(/S(\d+)\s*[:\s]\s*E(\d+)/i);
+      if (match) {
+        info.season = parseInt(match[1]);
+        info.episode = parseInt(match[2]);
+      }
+    }
+
+    // Episode title — shown next to the S1:E3 indicator
+    const titleEl = document.querySelector('[data-uia="video-title"]');
+    if (titleEl) {
+      // Get direct text content (not child spans which have S1:E3)
+      const spans = titleEl.querySelectorAll('span');
+      const spanTexts = Array.from(spans).map(s => s.textContent);
+      // The last text node or span usually has the episode title
+      const fullText = titleEl.textContent.trim();
+      // Remove the S1:E3 prefix to get the episode title
+      let epTitle = fullText;
+      for (const st of spanTexts) {
+        if (/S\d+\s*[:\s]\s*E\d+/i.test(st)) {
+          epTitle = epTitle.replace(st, '').trim();
+          break;
+        }
+      }
+      if (epTitle && epTitle !== fullText) {
+        info.episodeTitle = epTitle;
+      }
+    }
+
+    // Episode description — sometimes visible in the player info area
+    const descEl = document.querySelector('[data-uia="episode-synopsis"]')
+      || document.querySelector('[data-uia="info-synopsis"]')
+      || document.querySelector('.synopsis');
+    if (descEl) {
+      info.description = descEl.textContent.trim().slice(0, 200);
+    }
+
+    return Object.keys(info).length > 0 ? info : null;
+  }
+
   return {
     start, stop, onSeek,
     displayTranslation, hideOverlay,
     showOriginalSubtitles, hideOriginalSubtitles,
-    getCurrentText, getShowTitle,
+    getCurrentText, getShowTitle, getEpisodeInfo,
   };
 })();

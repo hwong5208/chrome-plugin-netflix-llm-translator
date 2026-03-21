@@ -2,14 +2,17 @@
 // Chrome kills service workers after ~30s of inactivity. This extends the
 // lifetime by pinging chrome.runtime periodically during active work.
 let keepAliveInterval = null;
+let activeRequests = 0;
 function startKeepAlive() {
+  activeRequests++;
   if (keepAliveInterval) return;
   keepAliveInterval = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => {});
-  }, 25000);
+  }, 20000);
 }
 function stopKeepAlive() {
-  if (keepAliveInterval) {
+  activeRequests = Math.max(0, activeRequests - 1);
+  if (activeRequests === 0 && keepAliveInterval) {
     clearInterval(keepAliveInterval);
     keepAliveInterval = null;
   }
@@ -17,7 +20,12 @@ function stopKeepAlive() {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'translate') {
-    handleTranslation(message).then(sendResponse).catch((err) => {
+    startKeepAlive();
+    handleTranslation(message).then((r) => {
+      stopKeepAlive();
+      sendResponse(r);
+    }).catch((err) => {
+      stopKeepAlive();
       sendResponse({ error: err.message });
     });
     return true;
@@ -36,21 +44,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'explainWord') {
-    handleWordExplanation(message).then(sendResponse).catch((err) => {
+    startKeepAlive();
+    handleWordExplanation(message).then((r) => {
+      stopKeepAlive();
+      sendResponse(r);
+    }).catch((err) => {
+      stopKeepAlive();
       sendResponse({ error: err.message });
     });
     return true;
   }
 
   if (message.type === 'explainWordBatch') {
-    handleWordBatchExplanation(message).then(sendResponse).catch((err) => {
+    startKeepAlive();
+    handleWordBatchExplanation(message).then((r) => {
+      stopKeepAlive();
+      sendResponse(r);
+    }).catch((err) => {
+      stopKeepAlive();
       sendResponse({ error: err.message });
     });
     return true;
   }
 
   if (message.type === 'translateNames') {
-    handleNameTranslation(message).then(sendResponse).catch((err) => {
+    startKeepAlive();
+    handleNameTranslation(message).then((r) => {
+      stopKeepAlive();
+      sendResponse(r);
+    }).catch((err) => {
+      stopKeepAlive();
       sendResponse({ error: err.message });
     });
     return true;
@@ -82,9 +105,22 @@ function buildHeaders(apiKey) {
   return headers;
 }
 
-function enrichPrompt(systemPrompt, showTitle, glossary) {
+function enrichPrompt(systemPrompt, showTitle, glossary, episodeInfo) {
   if (showTitle?.trim()) {
-    systemPrompt += `\nYou are translating subtitles for "${showTitle}".`;
+    let showLine = `\nYou are translating subtitles for "${showTitle}"`;
+    if (episodeInfo) {
+      if (episodeInfo.season && episodeInfo.episode) {
+        showLine += `, Season ${episodeInfo.season} Episode ${episodeInfo.episode}`;
+      }
+      if (episodeInfo.episodeTitle) {
+        showLine += `: "${episodeInfo.episodeTitle}"`;
+      }
+    }
+    showLine += '.';
+    systemPrompt += showLine;
+    if (episodeInfo?.description) {
+      systemPrompt += `\nEpisode summary: ${episodeInfo.description}`;
+    }
   }
   if (glossary && Object.keys(glossary).length > 0) {
     const lines = Object.entries(glossary).map(([en, tr]) => `${en} = ${tr}`).join('\n');
@@ -94,12 +130,12 @@ function enrichPrompt(systemPrompt, showTitle, glossary) {
 }
 
 // Single subtitle translation
-async function handleTranslation({ text, settings, showTitle, glossary }) {
+async function handleTranslation({ text, settings, showTitle, glossary, episodeInfo }) {
   let resolvedSystemPrompt = settings.systemPrompt.replace(
     /\{\{targetLanguage\}\}/g,
     settings.targetLanguage
   );
-  resolvedSystemPrompt = enrichPrompt(resolvedSystemPrompt, showTitle, glossary);
+  resolvedSystemPrompt = enrichPrompt(resolvedSystemPrompt, showTitle, glossary, episodeInfo);
 
   const body = {
     model: settings.modelName,
@@ -136,12 +172,12 @@ async function handleTranslation({ text, settings, showTitle, glossary }) {
 }
 
 // Batch subtitle translation — multiple subtitles in ONE LLM request
-async function handleBatchTranslation({ texts, settings, showTitle, glossary }) {
+async function handleBatchTranslation({ texts, settings, showTitle, glossary, episodeInfo }) {
   let resolvedSystemPrompt = settings.systemPrompt.replace(
     /\{\{targetLanguage\}\}/g,
     settings.targetLanguage
   );
-  resolvedSystemPrompt = enrichPrompt(resolvedSystemPrompt, showTitle, glossary);
+  resolvedSystemPrompt = enrichPrompt(resolvedSystemPrompt, showTitle, glossary, episodeInfo);
 
   // Build a numbered list for the LLM to translate
   // Flatten newlines in subtitles so multi-line subs don't break the [N] format
